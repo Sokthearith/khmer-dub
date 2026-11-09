@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+
+# your videos and work folders stay on your computer
+projects/
+*_khmerdub/
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.m4a

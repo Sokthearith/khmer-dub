@@ -1,0 +1,62 @@
+[project]
+name = "khmerdub"
+version = "0.1.0"
+description = "Turn Chinese videos into Khmer: transcript, translation, Khmer voice dub (Sreymom/Piseth), Khmer subtitles and Chinese text blur."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Sokthearith" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic>=2.6.0",
+    "requests>=2.31",
+    "edge-tts>=7.3.1",
+    "faster-whisper>=1.2.1",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pydantic>=2.9",
+    "rapidocr-onnxruntime>=1.4.4",
+    "soundfile>=0.12",
+    "imageio-ffmpeg>=0.5.1",
+    "demucs>=4.0.1",
+    "gradio>=5.0",
+]
+
+[project.optional-dependencies]
+# Pick ONE: `cpu` (any laptop, also Mac) or `gpu` (NVIDIA GPU on Windows/Linux).
+cpu = ["torch>=2.5", "torchaudio>=2.5"]
+gpu = ["torch>=2.5", "torchaudio>=2.5"]
+# Extra translation engines (optional)
+openai = ["openai>=1.50"]
+gemini = ["google-genai>=1.0"]
+offline = ["transformers>=4.45", "sentencepiece>=0.2"]
+all-translators = ["openai>=1.50", "google-genai>=1.0", "transformers>=4.45", "sentencepiece>=0.2"]
+
+[project.scripts]
+khmerdub = "khmerdub.cli:main"
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-cu128", extra = "gpu" },
+]
+torchaudio = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-cu128", extra = "gpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14.0"]
+build-backend = "uv_build"
