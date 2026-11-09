@@ -91,6 +91,7 @@ def render(
         cmd += ["-i", str(srt)]
         maps += ["-map", f"{n_in}:s:0", "-c:s", "mov_text", "-metadata:s:s:0", "language=khm"]
     cmd += maps + ["-vf", ",".join(vf), "-c:v", "libx264", "-preset", preset, "-crf", crf,
+                   "-force_key_frames", "expr:gte(t,n_forced*30)",
                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
 
     errlog = workdir / "ffmpeg_render.log"

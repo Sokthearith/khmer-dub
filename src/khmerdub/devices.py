@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import functools
 import os
+import shutil
 import sys
+
+
+def has_nvidia_gpu() -> bool:
+    """Quick check (no torch import): is an NVIDIA driver installed?"""
+    return shutil.which("nvidia-smi") is not None
 
 
 @functools.cache

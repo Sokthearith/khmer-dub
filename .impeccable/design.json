@@ -1,0 +1,659 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-09T19:22:00+00:00",
+  "title": "Design System: Khmer Dub",
+  "extensions": {
+    "colorMeta": {
+      "turmeric": {
+        "role": "primary",
+        "displayName": "Turmeric",
+        "canonical": "#e8a62a",
+        "oklch": "oklch(76.9% 0.149 77.5)",
+        "source": "src/khmerdub/ui.py TUR",
+        "tonalRamp": [
+          "#2e1d07",
+          "#744b11",
+          "#9c6614",
+          "#c4841a",
+          "#e8a62a",
+          "#f0bd52",
+          "#f6d48a",
+          "#fdf6e7"
+        ]
+      },
+      "turmeric-light": {
+        "role": "primary",
+        "displayName": "Turmeric Light",
+        "canonical": "#f2b94a",
+        "oklch": "oklch(81.8% 0.141 80.9)",
+        "source": "src/khmerdub/ui.py TUR_L",
+        "tonalRamp": [
+          "#2e1d07",
+          "#744b11",
+          "#9c6614",
+          "#c4841a",
+          "#e8a62a",
+          "#f0bd52",
+          "#f6d48a",
+          "#fdf6e7"
+        ]
+      },
+      "turmeric-ink": {
+        "role": "primary",
+        "displayName": "Turmeric Ink",
+        "canonical": "#1a1203",
+        "oklch": "oklch(18.8% 0.032 83.9)",
+        "source": "src/khmerdub/ui.py TUR_INK",
+        "tonalRamp": [
+          "#0f0b04",
+          "#2a2315",
+          "#483f2c",
+          "#665c49",
+          "#867c68",
+          "#a79d8a",
+          "#cac3b6",
+          "#f0eeea"
+        ]
+      },
+      "lac": {
+        "role": "secondary",
+        "displayName": "Lac Red (Sreymom)",
+        "canonical": "#c9384d",
+        "oklch": "oklch(56.3% 0.181 17.2)",
+        "source": "src/khmerdub/ui.py LAC",
+        "tonalRamp": [
+          "#1f0003",
+          "#490211",
+          "#7b0121",
+          "#ac1536",
+          "#d34255",
+          "#f46c78",
+          "#ffa9ac",
+          "#fee9e9"
+        ]
+      },
+      "lac-text": {
+        "role": "secondary",
+        "displayName": "Lac Text (Sreymom on indigo)",
+        "canonical": "#f07386",
+        "oklch": "oklch(70.7% 0.154 12.4)",
+        "source": "src/khmerdub/ui.py LAC_T",
+        "tonalRamp": [
+          "#1e0005",
+          "#490216",
+          "#7a022a",
+          "#a12b45",
+          "#c74e64",
+          "#e87586",
+          "#fea9b2",
+          "#ffe8ea"
+        ]
+      },
+      "sky-indigo": {
+        "role": "secondary",
+        "displayName": "Sky-Indigo (Piseth)",
+        "canonical": "#5f80e6",
+        "oklch": "oklch(62.4% 0.158 268.1)",
+        "source": "src/khmerdub/ui.py SKY",
+        "tonalRamp": [
+          "#02032f",
+          "#0c1663",
+          "#1e3291",
+          "#3854b5",
+          "#5575da",
+          "#7899f9",
+          "#acc3fe",
+          "#e8eeff"
+        ]
+      },
+      "sky-text": {
+        "role": "secondary",
+        "displayName": "Sky Text (Piseth on indigo)",
+        "canonical": "#93abff",
+        "oklch": "oklch(75.7% 0.124 271.1)",
+        "source": "src/khmerdub/ui.py SKY_T",
+        "tonalRamp": [
+          "#040628",
+          "#131b56",
+          "#293780",
+          "#4557a3",
+          "#6277c7",
+          "#849ae6",
+          "#b1c2f9",
+          "#e8eeff"
+        ]
+      },
+      "error-ground": {
+        "role": "secondary",
+        "displayName": "Error Ground",
+        "canonical": "#2c1230",
+        "oklch": "oklch(23.6% 0.065 322.1)",
+        "source": "src/khmerdub/ui.py hol_theme error_background_fill",
+        "tonalRamp": [
+          "#120614",
+          "#301a34",
+          "#503454",
+          "#6f5173",
+          "#907194",
+          "#b192b5",
+          "#d2bcd5",
+          "#f3ecf4"
+        ]
+      },
+      "error-text": {
+        "role": "secondary",
+        "displayName": "Error Text",
+        "canonical": "#ffc2cb",
+        "oklch": "oklch(87.1% 0.071 8.8)",
+        "source": "src/khmerdub/ui.py hol_theme error_text_color",
+        "tonalRamp": [
+          "#180408",
+          "#3b161e",
+          "#5f2f38",
+          "#804c55",
+          "#a26c75",
+          "#c38e96",
+          "#e0b8be",
+          "#f8ebec"
+        ]
+      },
+      "jade": {
+        "role": "tertiary",
+        "displayName": "Jade (done)",
+        "canonical": "#3aa883",
+        "oklch": "oklch(65.9% 0.114 166.9)",
+        "source": "src/khmerdub/ui.py JADE",
+        "tonalRamp": [
+          "#000f08",
+          "#012c1f",
+          "#004c37",
+          "#026f52",
+          "#1b926f",
+          "#53b390",
+          "#95d4ba",
+          "#e0f4eb"
+        ]
+      },
+      "indigo-ground": {
+        "role": "neutral",
+        "displayName": "Indigo Ground",
+        "canonical": "#10143a",
+        "oklch": "oklch(21.4% 0.073 274.0)",
+        "source": "src/khmerdub/ui.py GROUND",
+        "tonalRamp": [
+          "#10143a",
+          "#161b45",
+          "#1b2147",
+          "#2a3166",
+          "#3a4174",
+          "#4f5488",
+          "#9497bd",
+          "#d9d8e8"
+        ]
+      },
+      "indigo-panel": {
+        "role": "neutral",
+        "displayName": "Indigo Panel",
+        "canonical": "#161b45",
+        "oklch": "oklch(24.5% 0.078 274.0)",
+        "source": "src/khmerdub/ui.py PANEL",
+        "tonalRamp": [
+          "#10143a",
+          "#161b45",
+          "#1b2147",
+          "#2a3166",
+          "#3a4174",
+          "#4f5488",
+          "#9497bd",
+          "#d9d8e8"
+        ]
+      },
+      "indigo-panel-alt": {
+        "role": "neutral",
+        "displayName": "Indigo Panel Alt",
+        "canonical": "#141943",
+        "oklch": "oklch(23.7% 0.079 273.7)",
+        "source": "src/khmerdub/ui.py hol_theme table_odd_background_fill",
+        "tonalRamp": [
+          "#10143a",
+          "#161b45",
+          "#1b2147",
+          "#2a3166",
+          "#3a4174",
+          "#4f5488",
+          "#9497bd",
+          "#d9d8e8"
+        ]
+      },
+      "indigo-rail": {
+        "role": "neutral",
+        "displayName": "Indigo Rail",
+        "canonical": "#1b2147",
+        "oklch": "oklch(26.5% 0.071 273.8)",
+        "source": "src/khmerdub/ui.py RAIL",
+        "tonalRamp": [
+          "#10143a",
+          "#161b45",
+          "#1b2147",
+          "#2a3166",
+          "#3a4174",
+          "#4f5488",
+          "#9497bd",
+          "#d9d8e8"
+        ]
+      },
+      "indigo-raised": {
+        "role": "neutral",
+        "displayName": "Indigo Raised",
+        "canonical": "#262e5e",
+        "oklch": "oklch(32.1% 0.085 273.5)",
+        "source": "src/khmerdub/ui.py RAISED",
+        "tonalRamp": [
+          "#10143a",
+          "#161b45",
+          "#1b2147",
+          "#2a3166",
+          "#3a4174",
+          "#4f5488",
+          "#9497bd",
+          "#d9d8e8"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#343c74",
+        "oklch": "oklch(37.9% 0.095 274.8)",
+        "source": "src/khmerdub/ui.py RULE",
+        "tonalRamp": [
+          "#060821",
+          "#1a1e4a",
+          "#323971",
+          "#4e5893",
+          "#6d78b6",
+          "#8e9ad5",
+          "#b8c2ed",
+          "#eaeefc"
+        ]
+      },
+      "rule-light": {
+        "role": "neutral",
+        "displayName": "Rule Light",
+        "canonical": "#4a5290",
+        "oklch": "oklch(46.2% 0.101 276.2)",
+        "source": "src/khmerdub/ui.py RULE_L",
+        "tonalRamp": [
+          "#060722",
+          "#1a1d4c",
+          "#333874",
+          "#4f5796",
+          "#6d77b9",
+          "#8f99d8",
+          "#b8c1ef",
+          "#eaeefd"
+        ]
+      },
+      "raw-silk": {
+        "role": "neutral",
+        "displayName": "Raw Silk",
+        "canonical": "#f1e8d6",
+        "oklch": "oklch(93.3% 0.026 84.6)",
+        "source": "src/khmerdub/ui.py SILK",
+        "tonalRamp": [
+          "#0e0b05",
+          "#292318",
+          "#463f30",
+          "#645d4d",
+          "#847c6c",
+          "#a59e8e",
+          "#c9c3b8",
+          "#f0eeea"
+        ]
+      },
+      "silk-muted": {
+        "role": "neutral",
+        "displayName": "Silk Muted",
+        "canonical": "#bdbdd6",
+        "oklch": "oklch(80.6% 0.035 285.6)",
+        "source": "src/khmerdub/ui.py SILK_2",
+        "tonalRamp": [
+          "#0a0a13",
+          "#232232",
+          "#3e3d52",
+          "#5b5b71",
+          "#7b7b92",
+          "#9c9cb2",
+          "#c2c2d3",
+          "#eeeef3"
+        ]
+      },
+      "silk-faint": {
+        "role": "neutral",
+        "displayName": "Silk Faint",
+        "canonical": "#9396bb",
+        "oklch": "oklch(68.4% 0.054 281.2)",
+        "source": "src/khmerdub/ui.py SILK_3",
+        "tonalRamp": [
+          "#090918",
+          "#20213a",
+          "#3b3c5c",
+          "#585a7c",
+          "#777a9d",
+          "#989bbe",
+          "#c0c2db",
+          "#edeef6"
+        ]
+      },
+      "on-lac": {
+        "role": "on-color",
+        "displayName": "On lac",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100% 0 0)",
+        "source": "src/khmerdub/ui.py .kd-voice selected Sreymom text",
+        "tonalRamp": [
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Specimen",
+        "purpose": "The Khmer line being edited; 30px at viewport height ≤960px, 24px below 900px wide."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "\"Khmer Dub\" in the header's wordmark cell only."
+      },
+      "wordmark-khmer": {
+        "displayName": "Khmer Seal (Moul)",
+        "purpose": "The Moul \"ឌប់ខ្មែរ\" under the wordmark, in turmeric. Moul is used nowhere else."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Step titles, followed by the step's Khmer word at 15px/400 silk-muted. Project name is 21px/600."
+      },
+      "title": {
+        "displayName": "Count Numeral",
+        "purpose": "Header count numerals; jade when the count is complete."
+      },
+      "khmer-line": {
+        "displayName": "Khmer Line",
+        "purpose": "Khmer column of the line table; next-line preview is 18px/500/1.7."
+      },
+      "button": {
+        "displayName": "Action Button",
+        "purpose": "52px action-row buttons."
+      },
+      "nav": {
+        "displayName": "Rail Step",
+        "purpose": "Step rail labels."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Facts values, table cells, messages; Chinese in silk-muted."
+      },
+      "hint": {
+        "displayName": "Hint",
+        "purpose": "Step descriptions, field hints, header metadata, working status."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Weft band head, line head, facts labels, next-line label."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase: header count labels, settings group headings, table column headers. Never above a heading."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "The Export log and code samples in Help only."
+      },
+      "display-compact": {
+        "displayName": "Specimen",
+        "purpose": "The Khmer line being edited; 30px at viewport height ≤960px, 24px below 900px wide.",
+        "fontSize": "30px"
+      },
+      "display-small": {
+        "displayName": "Specimen",
+        "purpose": "The Khmer line being edited; 30px at viewport height ≤960px, 24px below 900px wide.",
+        "fontSize": "24px"
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "shuttle",
+        "value": "kd-shuttle 2.4s cubic-bezier(.16,1,.3,1) infinite alternate",
+        "purpose": "The only animation: a 2px, 22%-wide turmeric thread sliding along the header's bottom rule while a job runs."
+      },
+      {
+        "name": "ease-shuttle",
+        "value": "cubic-bezier(.16,1,.3,1)",
+        "purpose": "Exponential ease-out for the shuttle's travel."
+      },
+      {
+        "name": "shuttle-reduced",
+        "value": "animation: none; width: 100%; opacity: .6",
+        "purpose": "Under prefers-reduced-motion the shuttle becomes a still full-width thread."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "rail-strip",
+        "value": "max-width: 900px",
+        "purpose": "Rail becomes a strip under the header; editor above table; specimen 24px."
+      },
+      {
+        "name": "phone",
+        "value": "max-width: 600px",
+        "purpose": "Header stacks; tables scroll sideways at 640px minimum."
+      },
+      {
+        "name": "short-viewport",
+        "value": "max-height: 960px",
+        "purpose": "Specimen 30px so the editor and Save and next stay in the first viewport."
+      }
+    ],
+    "layout": {
+      "railWidth": "232px",
+      "headerMinHeight": "80px",
+      "weftBandHeight": "48px",
+      "workAreaPadding": "32px 32px 56px",
+      "workAreaPaddingNarrow": "20px 16px 40px",
+      "reviewColumns": "table 3 (min 560px) : editor 2 (min 320px)",
+      "tableColumns": "# 7% · Time 9% · Chinese 28% · Khmer 42% · Voice 14%"
+    },
+    "outlines": [
+      {
+        "name": "focus",
+        "value": "outline: 2px solid #e8a62a; outline-offset: 2px",
+        "purpose": "Global :focus-visible ring."
+      },
+      {
+        "name": "current-weft",
+        "value": "box-shadow: 0 0 0 1px #f1e8d6",
+        "purpose": "1px silk ring around the current weft block; an outline, not a shadow."
+      }
+    ],
+    "browserSurfaces": {
+      "selection": "background #e8a62a; color #1a1203",
+      "caret": "#e8a62a",
+      "scrollbar": "thumb #4a5290 on track #10143a, thin",
+      "linkUnderlineOffset": "3px",
+      "colorScheme": "dark (forced, both system themes)"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Turmeric action: the one next step in an action row (Save and next, Continue to settings).",
+      "html": "<button class=\"ds-btn-primary\">Save and next</button>",
+      "css": ".ds-btn-primary { background: #e8a62a; color: #1a1203; border: 0; border-radius: 0; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; font-size: 16px; font-weight: 600; min-height: 52px; padding: 0 32px; cursor: pointer; } .ds-btn-primary:hover { background: #f2b94a; } .ds-btn-primary:focus-visible { outline: 2px solid #e8a62a; outline-offset: 2px; } .ds-btn-primary:active { background: #e8a62a; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Every other action: an indigo-rail slab one tone above the ground, raised on hover.",
+      "html": "<button class=\"ds-btn-secondary\">Do everything automatically</button>",
+      "css": ".ds-btn-secondary { background: #1b2147; color: #f1e8d6; border: 0; border-radius: 0; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; font-size: 16px; font-weight: 600; min-height: 52px; padding: 0 32px; cursor: pointer; } .ds-btn-secondary:hover { background: #262e5e; } .ds-btn-secondary:focus-visible { outline: 2px solid #e8a62a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field in a Block",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A Gradio block on indigo-panel with a 1px rule; the field sinks to indigo-ground, focus is the turmeric outline.",
+      "html": "<label class=\"ds-block\"><span class=\"ds-block-label\">Find (Khmer)</span><input class=\"ds-input\" placeholder=\"ឈ្មោះ\"></label>",
+      "css": ".ds-block { display: block; background: #161b45; border: 1px solid #343c74; padding: 12px; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; max-width: 360px; } .ds-block-label { display: block; color: #bdbdd6; font-size: 14px; margin-bottom: 8px; letter-spacing: .01em; } .ds-input { width: 100%; box-sizing: border-box; background: #10143a; color: #f1e8d6; border: 0; border-radius: 0; padding: 10px 12px; font: 15px 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; caret-color: #e8a62a; } .ds-input::placeholder { color: #9396bb; } .ds-input:focus-visible { outline: 2px solid #e8a62a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Choice Chips",
+      "kind": "chip",
+      "refersTo": "choice-chip",
+      "description": "Gradio radio choices as borderless square chips; selected steps up to indigo-raised with a turmeric dot.",
+      "html": "<div class=\"ds-chips\"><label class=\"ds-chip is-on\"><i></i>Free · Google</label><label class=\"ds-chip\"><i></i>Free AI · Gemini</label><label class=\"ds-chip\"><i></i>Best · Claude</label></div>",
+      "css": ".ds-chips { display: flex; gap: 8px; flex-wrap: wrap; background: #161b45; padding: 12px; border: 1px solid #343c74; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; } .ds-chip { display: inline-flex; align-items: center; gap: 8px; background: #1b2147; color: #f1e8d6; padding: 8px 12px; font-size: 15px; cursor: pointer; } .ds-chip:hover, .ds-chip.is-on { background: #262e5e; } .ds-chip i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #4a5290; background: #10143a; box-sizing: border-box; } .ds-chip.is-on i { background: #f1e8d6; border: 4px solid #e8a62a; }"
+    },
+    {
+      "name": "Step Rail",
+      "kind": "nav",
+      "refersTo": "rail-step",
+      "description": "Numbered workflow steps with Khmer hints: jade square = done, turmeric bar and square = here.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-step is-done\"><b>1</b>Upload<em>ផ្ទុកឡើង</em></a><a class=\"ds-step is-done\"><b>2</b>Settings<em>ការកំណត់</em></a><a class=\"ds-step is-on\"><b>3</b>Review<em>ពិនិត្យ</em></a><a class=\"ds-step\"><b>4</b>Blur<em>បិទអក្សរ</em></a><a class=\"ds-step\"><b>5</b>Export<em>នាំចេញ</em></a><a class=\"ds-step ds-extra\">Batch<em>ច្រើនភាគ</em></a></nav>",
+      "css": ".ds-rail { width: 232px; background: #1b2147; border-right: 1px solid #343c74; padding: 16px 0 24px; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; } .ds-step { display: flex; align-items: center; gap: 14px; min-height: 48px; box-sizing: border-box; padding: 12px 21px; border-left: 3px solid transparent; color: #bdbdd6; font-size: 15px; font-weight: 500; cursor: pointer; } .ds-step:hover { background: #262e5e; color: #f1e8d6; } .ds-step b { flex: 0 0 24px; height: 24px; display: grid; place-items: center; box-sizing: border-box; border: 1px solid #4a5290; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; } .ds-step em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 400; color: #9396bb; } .ds-step.is-done b { background: #3aa883; border-color: #3aa883; color: #10143a; } .ds-step.is-on { background: #262e5e; color: #f1e8d6; border-left-color: #e8a62a; } .ds-step.is-on b { border-color: #e8a62a; color: #e8a62a; } .ds-extra { padding-left: 59px; margin-top: 24px; border-top: 1px solid #343c74; padding-top: 16px; } .ds-step:focus-visible { outline: 2px solid #e8a62a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Header with Counts and Shuttle",
+      "kind": "custom",
+      "refersTo": "header",
+      "description": "Wordmark cell with the Moul seal, project facts, counts on hairline dividers; the turmeric shuttle runs while a job works.",
+      "html": "<header class=\"ds-head\"><div class=\"ds-mark\"><b>Khmer Dub</b><span>ឌប់ខ្មែរ</span></div><div class=\"ds-proj\"><h1>sample_zh</h1><span class=\"ds-meta\">0:36 · 1280×720</span><span class=\"ds-working\">Translating · 42%</span><div class=\"ds-counts\"><div>Lines<b>8</b></div><div class=\"ok\">In Khmer<b>8</b></div><div>Checked<b>1</b></div><div>Video<b>not yet</b></div></div></div><div class=\"ds-shuttle\"><i></i></div></header>",
+      "css": ".ds-head { display: grid; grid-template-columns: 232px 1fr; min-height: 80px; background: #10143a; border-bottom: 1px solid #343c74; position: relative; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; color: #f1e8d6; } .ds-mark { background: #1b2147; border-right: 1px solid #343c74; padding: 16px 24px; display: flex; flex-direction: column; justify-content: center; gap: 2px; } .ds-mark b { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; } .ds-mark span { font-family: 'KD Moul','Moul',serif; font-size: 13px; color: #e8a62a; line-height: 1.6; } .ds-proj { display: flex; align-items: center; gap: 24px; padding: 12px 32px; flex-wrap: wrap; } .ds-proj h1 { font-size: 21px; font-weight: 600; margin: 0; } .ds-meta { font-size: 14px; color: #bdbdd6; font-variant-numeric: tabular-nums; } .ds-working { font-size: 14px; color: #e8a62a; } .ds-counts { margin-left: auto; display: flex; } .ds-counts div { padding: 0 20px; border-left: 1px solid #343c74; font-size: 12px; color: #bdbdd6; letter-spacing: .05em; text-transform: uppercase; } .ds-counts b { display: block; font-size: 19px; font-weight: 600; color: #f1e8d6; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; } .ds-counts .ok b { color: #3aa883; } .ds-shuttle { position: absolute; left: 232px; right: 0; bottom: -1px; height: 2px; overflow: hidden; } .ds-shuttle i { position: absolute; top: 0; height: 2px; width: 22%; background: #e8a62a; animation: ds-shuttle 2.4s cubic-bezier(.16,1,.3,1) infinite alternate; } @keyframes ds-shuttle { from { left: 0; } to { left: 78%; } } @media (prefers-reduced-motion: reduce) { .ds-shuttle i { animation: none; width: 100%; opacity: .6; } }"
+    },
+    {
+      "name": "Episode Weft Band",
+      "kind": "custom",
+      "refersTo": "weft-band",
+      "description": "The signature: one block per line, width = duration, dyed by voice; faded = not checked, striped = no Khmer, turmeric = this line.",
+      "html": "<div class=\"ds-weft\"><div class=\"ds-weft-head\"><span>Episode · 8 lines · 3 checked · block width = line length</span><span class=\"ds-key\"><span class=\"k-s\">Sreymom</span><span class=\"k-p\">Piseth</span><span class=\"k-c\">this line</span><span class=\"k-u\">faded = not checked</span><span class=\"k-r\">striped = no Khmer yet</span></span></div><div class=\"ds-band\"><i class=\"g\" style=\"flex:1.2\"></i><i class=\"s\" style=\"flex:3.1\"></i><i class=\"g\" style=\"flex:1.4\"></i><i class=\"p\" style=\"flex:3.2\"></i><i class=\"g\" style=\"flex:1.7\"></i><i class=\"s un\" style=\"flex:3.4\"></i><i class=\"g\" style=\"flex:1.5\"></i><i class=\"p cur\" style=\"flex:3.1\"></i><i class=\"g\" style=\"flex:2\"></i><i class=\"s un\" style=\"flex:2.4\"></i><i class=\"g\" style=\"flex:1.4\"></i><i class=\"raw\" style=\"flex:2.2\"></i><i class=\"g\" style=\"flex:1\"></i><i class=\"p un\" style=\"flex:3.4\"></i><i class=\"g\" style=\"flex:1.3\"></i></div></div>",
+      "css": ".ds-weft { font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; background: #10143a; padding: 16px; } .ds-weft-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: #bdbdd6; margin-bottom: 8px; } .ds-key { display: flex; gap: 4px 16px; flex-wrap: wrap; } .ds-key span::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; } .ds-key .k-s::before { background: #c9384d; } .ds-key .k-p::before { background: #5f80e6; } .ds-key .k-c::before { background: #e8a62a; } .ds-key .k-u::before { background: linear-gradient(90deg, #c9384d 50%, #5f80e6 50%); opacity: .42; } .ds-key .k-r::before { background: repeating-linear-gradient(90deg, #4a5290 0 1px, transparent 1px 3px); outline: 1px solid #343c74; } .ds-band { display: flex; height: 48px; background: #10143a; border: 1px solid #343c74; } .ds-band i { display: block; height: 100%; min-width: 1px; background-image: repeating-linear-gradient(0deg, rgba(10,12,40,.22) 0 1px, transparent 1px 3px); } .ds-band i.g { background: transparent; } .ds-band i.s { background-color: #c9384d; } .ds-band i.p { background-color: #5f80e6; } .ds-band i.un { opacity: .42; } .ds-band i.raw { background: repeating-linear-gradient(90deg, #4a5290 0 1px, transparent 1px 3px); } .ds-band i.cur { background-color: #e8a62a; opacity: 1; box-shadow: 0 0 0 1px #f1e8d6; position: relative; z-index: 1; } .ds-band i:hover { outline: 1px solid #f1e8d6; }"
+    },
+    {
+      "name": "Khmer Line Editor",
+      "kind": "custom",
+      "refersTo": "specimen-field",
+      "description": "The current line at specimen scale over muted Chinese, voice chips in their dyes, and the next line waiting under a dashed thread.",
+      "html": "<div class=\"ds-editor\"><p class=\"ds-linehead\">Line 4 of 8 · 0:14.1 → 0:17.0</p><div class=\"ds-blk\"><span>Chinese</span><div class=\"ds-zh\">我知道是我不好，明天我请你吃饭，好不好？</div><span>Khmer</span><textarea class=\"ds-specimen\" rows=\"2\">ខ្ញុំដឹងថាវាជាកំហុសរបស់ខ្ញុំ។ ខ្ញុំនឹងជូនអ្នកទៅញ៉ាំអាហារថ្ងៃស្អែក មិនអីទេ?</textarea><span>Voice</span><div class=\"ds-voice\"><label><i></i>Sreymom</label><label class=\"on-p\"><i></i>Piseth</label></div></div><div class=\"ds-next\">Next · line 5<b>យល់ព្រម អ្នកមិនអាចកុហកខ្ញុំទៀតទេ។</b></div></div>",
+      "css": ".ds-editor { font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; background: #10143a; padding: 16px; max-width: 460px; } .ds-linehead { font-size: 13px; color: #bdbdd6; margin: 0 0 12px; font-variant-numeric: tabular-nums; } .ds-blk { background: #161b45; border: 1px solid #343c74; padding: 12px; display: grid; gap: 8px; } .ds-blk > span { font-size: 14px; color: #bdbdd6; } .ds-zh { background: #10143a; color: #bdbdd6; font-size: 16px; padding: 10px 12px; } .ds-specimen { background: #10143a; color: #f1e8d6; border: 0; border-radius: 0; resize: none; font: 500 34px/1.75 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; padding: 8px 12px; caret-color: #e8a62a; } .ds-specimen:focus-visible { outline: 2px solid #e8a62a; outline-offset: 2px; } .ds-voice { display: flex; gap: 8px; } .ds-voice label { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1b2147; color: #f1e8d6; font-size: 15px; cursor: pointer; } .ds-voice i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #4a5290; box-sizing: border-box; } .ds-voice label.on-p { background: #5f80e6; color: #10143a; font-weight: 600; } .ds-voice label.on-p i { background: #f1e8d6; border-color: #f1e8d6; } .ds-voice label:hover { background: #262e5e; } .ds-voice label.on-p:hover { background: #5f80e6; } .ds-next { border-top: 1px dashed #4a5290; padding-top: 12px; margin-top: 16px; font-size: 13px; color: #bdbdd6; } .ds-next b { display: block; font-size: 18px; font-weight: 500; line-height: 1.7; margin-top: 2px; }"
+    },
+    {
+      "name": "Line Table",
+      "kind": "custom",
+      "refersTo": "table-row-current",
+      "description": "Lines on alternating indigo rows: Khmer larger than muted Chinese, voices in their text tints, checked numbers jade, current row raised with a turmeric number.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>#</th><th>Time</th><th>Chinese</th><th>Khmer</th><th>Voice</th></tr></thead><tbody><tr><td class=\"ck\">3</td><td>0:09</td><td class=\"zh\">你总是这样说</td><td class=\"km\">អ្នកតែងតែនិយាយបែបនេះ</td><td class=\"vs\">Sreymom</td></tr><tr class=\"cur\"><td>4</td><td>0:14</td><td class=\"zh\">我知道是我不好</td><td class=\"km\">ខ្ញុំដឹងថាវាជាកំហុសរបស់ខ្ញុំ</td><td class=\"vp\">Piseth</td></tr><tr><td>5</td><td>0:18</td><td class=\"zh\">好吧</td><td class=\"km empty\"></td><td class=\"vs\">Sreymom</td></tr></tbody></table>",
+      "css": ".ds-table { border-collapse: collapse; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; font-size: 15px; font-variant-numeric: tabular-nums; color: #f1e8d6; border: 1px solid #343c74; } .ds-table th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: #bdbdd6; text-align: left; font-weight: 600; padding: 10px 8px; background: #161b45; border: 1px solid #343c74; } .ds-table td { padding: 10px 8px; line-height: 1.6; border: 1px solid #343c74; } .ds-table tbody tr:nth-child(odd) { background: #141943; } .ds-table tbody tr:nth-child(even) { background: #161b45; } .ds-table td.zh { color: #bdbdd6; } .ds-table td.km { font-size: 17px; line-height: 1.7; } .ds-table td.empty { background: #262e5e; } .ds-table td.vs { color: #f07386; } .ds-table td.vp { color: #93abff; } .ds-table td.ck { color: #3aa883; font-weight: 600; } .ds-table tr.cur td { background: #262e5e; } .ds-table tr.cur td:first-child { background: #e8a62a; color: #1a1203; font-weight: 600; } .ds-table tbody tr:hover td { background: #262e5e; cursor: pointer; }"
+    },
+    {
+      "name": "Facts List",
+      "kind": "card",
+      "refersTo": "block",
+      "description": "Project facts as a definition list on hairlines; the time estimate in turmeric.",
+      "html": "<dl class=\"ds-facts\"><dt>Length</dt><dd>0:36</dd><dt>Picture</dt><dd>1280×720 · 14 MB</dd><dt>This computer</dt><dd>No graphics card (slower)</dd><dt>Time needed</dt><dd class=\"est\">about 1–2 min</dd></dl>",
+      "css": ".ds-facts { display: grid; grid-template-columns: 140px 1fr; border-top: 1px solid #343c74; font-family: 'KD Kantumruy','Kantumruy Pro','Noto Sans Khmer',ui-sans-serif,sans-serif; font-size: 15px; color: #f1e8d6; background: #10143a; margin: 0; max-width: 460px; } .ds-facts dt, .ds-facts dd { padding: 10px 0; border-bottom: 1px solid #343c74; margin: 0; } .ds-facts dt { color: #bdbdd6; font-size: 13px; } .ds-facts dd { font-variant-numeric: tabular-nums; } .ds-facts .est { color: #e8a62a; font-weight: 600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Hol Silk",
+    "overview": "Khmer Dub is a studio for weaving one episode at a time. The whole app is an indigo-dyed cloth, and everything that means something is a dye laid into it: turmeric marks where the creator is and what to press next, lac red is Sreymom, dyed sky-indigo is Piseth, jade is done. Nothing else carries colour. Every dialogue line is a weft thread, and on Review the whole episode is drawn as one woven band whose blocks are as wide as the lines are long.\n\nThe density is a working tool's, built for sessions that last hours: a fixed step rail on the left, a header that reads the project's counts as numbers on hairline rules, and work areas made of flat indigo panels divided by 1px rules. Corners are square, surfaces are flat, and depth comes from four close steps of indigo. Khmer is set larger and brighter than anything beside it, up to a 34px specimen in the line editor, because Khmer is the product.\n\nThe world refuses the category default for media tools: a grey or near-black editor shell with one blue accent, gradient banners, rounded pill chips and soft shadows. It keeps the same indigo cloth whether the user's system theme is light or dark.",
+    "keyCharacteristics": [
+      "An indigo-dyed shell in both system themes; four indigo steps do the work shadows usually do.",
+      "Four dyes, four meanings: turmeric = here and next, lac = Sreymom, sky-indigo = Piseth, jade = done.",
+      "Square corners and 1px hairlines everywhere; flat fills; stripes only where they read as thread.",
+      "Khmer at specimen scale; Chinese always muted and smaller.",
+      "The episode weft band is the signature: one block per line, block width = line duration.",
+      "One motion: a turmeric shuttle thread crossing under the header while a job runs."
+    ],
+    "rules": [
+      {
+        "name": "The Dye Rule",
+        "body": "Every hue is a meaning: turmeric = here and next, lac = Sreymom, sky-indigo = Piseth, jade = done. An element with none of these meanings stays indigo and silk.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Thread Rule",
+        "body": "Turmeric marks one place at a time: one current line, one active step, one primary button per action row.",
+        "section": "colors"
+      },
+      {
+        "name": "The Same Cloth Rule",
+        "body": "The indigo shell holds in light and dark system themes alike. Every Gradio theme variable is set to the same value as its `_dark` twin, and `color-scheme` is forced to dark.",
+        "section": "colors"
+      },
+      {
+        "name": "The Khmer Is Larger Rule",
+        "body": "Wherever Khmer sits beside Chinese or English, it is the bigger, brighter line: a 34px silk specimen over a 16px muted Chinese field in the editor, 17px Khmer beside 15px muted Chinese in the table.",
+        "section": "typography"
+      },
+      {
+        "name": "The Seal Rule",
+        "body": "Moul appears only as the Khmer wordmark (13px, turmeric). It is never used for headings, buttons or body text.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Times, counts, line numbers, sizes and estimates use tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Shared Column Rule",
+        "body": "The wordmark cell and the rail are the same 232px column, and the shuttle starts at its edge. Anything added to the left edge aligns to it.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Cloth Rule",
+        "body": "No shadow, glow, blur or lift. To bring something forward, step it one indigo tone up; to make a field, step it down to ground.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Square Thread Rule",
+        "body": "No radius, no pills, no circles of our own; the only round shape is Gradio's native radio dot.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** keep the indigo ground (#10143a) in both light and dark system themes; set every Gradio theme variable and its `_dark` twin to the same value.",
+      "**Do** reserve turmeric (#e8a62a) for \"here and next\": the current line, the active step, one primary button per action row, focus, links, caret and selection.",
+      "**Do** keep each voice in its dye everywhere it appears: lac (#c9384d) for Sreymom, sky-indigo (#5f80e6) for Piseth, with lac-text (#f07386) and sky-text (#93abff) when the name is set as text on indigo.",
+      "**Do** mark done in jade (#3aa883) only: step squares, checked line numbers, complete counts, found blur boxes.",
+      "**Do** draw episode-length data as weft: block width = duration, silence as empty ground, unchecked at 42% opacity, untranslated as raw-thread stripes, current in turmeric with a 1px silk ring.",
+      "**Do** set Khmer larger and brighter than the Chinese or English beside it: specimen 34px/500/1.75 (30px at 960px tall or less, 24px below 900px wide), table Khmer 17px/1.7, next line 18px.",
+      "**Do** pair each step title with its Khmer word (15px silk-muted) and each rail step with a 12px Khmer hint.",
+      "**Do** divide with 1px rule (#343c74) hairlines and indigo tone steps, with 0px radius everywhere.",
+      "**Do** use tabular numerals for times, counts, line numbers, sizes and estimates.",
+      "**Do** keep motion to the shuttle: one 2px turmeric thread, 2.4s `cubic-bezier(.16,1,.3,1)`, still under reduced motion."
+    ],
+    "donts": [
+      "**Don't** round anything: no pills, no rounded blocks, no rounded buttons.",
+      "**Don't** add shadows, glows, blurs or hover lift; every Gradio shadow variable stays `none`.",
+      "**Don't** use smooth or decorative gradients, and never gradient text. The only gradients allowed are hard-stop stripes that read as thread: weft texture, the raw-thread stripe, the split key swatch.",
+      "**Don't** use turmeric as decoration, or for two primary actions in one row.",
+      "**Don't** use lac or sky-indigo for anything but their voice; lac's error family appears only in worded error toasts.",
+      "**Don't** set body-size text on a lac fill: silk on lac measures 4.15:1, below 4.5:1.",
+      "**Don't** put silk-faint (#9396bb) text on indigo-raised (#262e5e): it measures 4.48:1. Keep it on ground, panel or rail.",
+      "**Don't** use Moul for anything but the Khmer wordmark.",
+      "**Don't** extend the 3px coloured bar beyond the active rail step; cards, alerts and table rows take no coloured side bars.",
+      "**Don't** put a small uppercase label above a step title or the project name; the 12px tracked label names a count, a settings group or a table column, never a heading.",
+      "**Don't** let Chinese outrank Khmer in size or brightness; Chinese is always silk-muted."
+    ]
+  }
+}

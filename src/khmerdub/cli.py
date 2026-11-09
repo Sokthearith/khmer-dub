@@ -32,6 +32,13 @@ def main(argv: list[str] | None = None) -> None:
     ui.add_argument("--projects", default=None, help="folder for projects (default: ./projects)")
     ui.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
 
+    c = sub.add_parser("cut", help="keep a time range and/or split a video into parts")
+    c.add_argument("video")
+    c.add_argument("--every", type=float, help="split into parts of this many minutes (e.g. 10 or 15)")
+    c.add_argument("--from", dest="start", help="start time, e.g. 1:30 (default: beginning)")
+    c.add_argument("--to", dest="end", help="end time, e.g. 45:00 (default: end)")
+    c.add_argument("--out", help="output folder (default: <video>_parts next to the video)")
+
     r = sub.add_parser("run", help="process a video from the command line")
     r.add_argument("video")
     r.add_argument("--workdir", help="project folder (default: <video>_khmerdub next to the video)")
@@ -74,6 +81,15 @@ def main(argv: list[str] | None = None) -> None:
         from .ui import launch
 
         launch(port=a.port, share=a.share, projects_dir=a.projects, inbrowser=not a.no_browser)
+        return
+
+    if a.cmd == "cut":
+        from .cut import cut
+
+        v = Path(a.video)
+        parts = cut(v, Path(a.out) if a.out else v.parent / f"{v.stem}_parts", a.every, a.start, a.end)
+        for part in parts:
+            print(part)
         return
 
     proj = Project(a.video, a.workdir)

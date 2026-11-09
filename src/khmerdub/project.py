@@ -28,6 +28,7 @@ class Segment:
     km: str = ""
     voice: str = "sreymom"  # key of VOICES
     pitch: float = 0.0  # median pitch of the original speaker (Hz), 0 = unknown
+    checked: bool = False  # the creator reviewed this line in the app
 
     @property
     def duration(self) -> float:

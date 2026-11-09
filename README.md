@@ -6,9 +6,16 @@ Turn a Chinese video into a **Khmer video**, step by step, in your browser:
 2. **Writes the Chinese transcript** from the speech
 3. **Translates it to Khmer**: Google (free), Gemini (free key), OpenRouter / Groq (free keys), DeepSeek, Claude, ChatGPT, Ollama or an offline model
 4. **Lets you check every line**: listen to the original and the Khmer, fix the text, choose the voice
-5. **Dubs it in Khmer** with **Sreymom** 👩 and **Piseth** 👨, picked automatically from each speaker's voice
+5. **Dubs it in Khmer** with **Sreymom** (female) and **Piseth** (male), picked automatically from each speaker's voice
 6. **Adds Khmer subtitles**: in the picture or as a separate track, bottom or top, white or yellow
 7. **Blurs Chinese text** on screen: subtitles, logos and watermarks, and moving or floating text
+8. **Cuts videos into parts** (10 or 15 minutes, or your own length) for TikTok and Facebook, or to dub a long
+   episode piece by piece
+
+![The Review step: the episode as a band of coloured line blocks, the line table, and the Khmer line editor](docs/review-screen.png)
+
+*The Review step on a short test clip: each block in the band is one line (red Sreymom, blue Piseth), the line being
+edited is in yellow.*
 
 Works on **Windows, macOS and Linux**, with or without a graphics card. Your videos stay on your computer.
 Internet is needed for the Khmer voices and for the online translators.
@@ -32,17 +39,20 @@ Nothing else to install: ffmpeg comes with the app, and so does a Khmer font for
 
 ## Using the app
 
-The app guides you through 5 tabs:
+The steps are listed down the left side; the top bar always shows the open project and how far it is
+(lines, lines in Khmer, lines checked, video ready).
 
-| Tab | What you do |
+| Step | What you do |
 |---|---|
 | **1 · Upload** | Drop in the Chinese video (or continue a saved project). You see its length and how long processing will take. |
 | **2 · Settings** | Pick a **quick choice** (Free & easy, Free AI, Best quality, Fastest) or set things yourself. Press **Start**. |
-| **3 · Review** | Click any line to fix the Khmer, listen to the original 🔊 and to the Khmer voice 🔊, or switch Sreymom/Piseth. *Find & replace* fixes a name everywhere at once. |
+| **3 · Review** | The coloured band shows the whole episode, one block per line (red Sreymom, blue Piseth, faded = not checked yet). Click a line to fix the Khmer, play the original and the Khmer voice, switch Sreymom/Piseth, then *Save and next*. *All lines → Find and Replace* fixes a name everywhere at once. |
 | **4 · Blur** | See what the app will blur (green boxes). Click two corners on the picture to add your own box. Make a 20-second preview. |
 | **5 · Export** | Press **Make the Khmer video**. Download the video, the Khmer subtitles (.srt), the Khmer soundtrack and the Chinese transcript. |
+| **Cut** | Split the Khmer video into 10- or 15-minute parts (or any length), or keep only a range like 1:30 to 45:00. Cutting the original Chinese video can open each part as its own project. Takes seconds. |
 
-In a hurry? Press **⚡ Do everything automatically** after uploading.
+In a hurry? Press **Do everything automatically** after uploading.
+Bookmark a project: `http://localhost:7860/?project=NAME&step=review&line=120` opens it at that step and line.
 Many episodes? Use the **Batch** tab: add them all and let it run (overnight, for example).
 
 Everything is saved in the `projects` folder. If you stop halfway or close the app, pick the project again
@@ -118,6 +128,8 @@ uv run --extra cpu khmerdub run episode01.mp4 --translator gemini --api-key KEY
 uv run --extra cpu khmerdub run episode01.mp4 --blur-region 0,0.82,1,0.15   # extra blur box x,y,w,h (0-1)
 uv run --extra cpu khmerdub run episode01.mp4 --preview 300       # 20 s preview from 5:00
 uv run --extra cpu khmerdub run --help                            # all options
+uv run --extra cpu khmerdub cut episode01_khmer.mp4 --every 15    # split into 15-minute parts
+uv run --extra cpu khmerdub cut episode01.mp4 --from 1:30 --to 45:00
 ```
 
 Use `--extra gpu` instead of `--extra cpu` on a computer with an NVIDIA GPU.

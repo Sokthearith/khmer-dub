@@ -12,3 +12,9 @@ projects/
 *.mov
 *.wav
 *.m4a
+
+# design scratch (screenshots, decision sketches)
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/build/
+.impeccable/config.local.json

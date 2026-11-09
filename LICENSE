@@ -20,5 +20,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The bundled Noto Sans Khmer fonts (src/khmerdub/fonts) are licensed under the
-SIL Open Font License 1.1, see src/khmerdub/fonts/OFL.txt.
+The bundled fonts in src/khmerdub/fonts (Noto Sans Khmer, Kantumruy Pro, Moul) are
+licensed under the SIL Open Font License 1.1, see the OFL-*.txt files there.
