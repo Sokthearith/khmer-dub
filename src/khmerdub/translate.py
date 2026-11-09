@@ -21,11 +21,12 @@ from typing import Callable
 from .project import Segment
 
 ENGINES = {
-    "google": "Google Translate (free)",
-    "claude": "Claude – Anthropic (best quality, API key)",
-    "openai": "ChatGPT – OpenAI (API key)",
-    "gemini": "Gemini – Google AI (API key)",
-    "nllb": "NLLB offline (free, no internet, slower)",
+    "google": "Google Translate (free, no key)",
+    "gemini": "Gemini – Google AI (free key)",
+    "custom": "Other AI service – OpenRouter / Groq / DeepSeek / Ollama",
+    "claude": "Claude – Anthropic (best quality, paid key)",
+    "openai": "ChatGPT – OpenAI (paid key)",
+    "nllb": "NLLB offline (free, no internet, basic)",
 }
 DEFAULT_MODELS = {
     "claude": "claude-opus-5-5",
@@ -34,6 +35,19 @@ DEFAULT_MODELS = {
     "nllb": "facebook/nllb-200-distilled-600M",
 }
 KEY_ENV = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY"}
+
+# OpenAI-compatible services for the "custom" engine: name -> (base URL, key env var, suggested model, note)
+PROVIDERS = {
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "deepseek/deepseek-chat-v3-0324:free",
+                   "Free key at openrouter.ai; models ending in ':free' cost nothing"),
+    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "llama-3.3-70b-versatile",
+             "Free key at console.groq.com; very fast"),
+    "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat",
+                 "Key at platform.deepseek.com; very cheap, strong at Chinese"),
+    "ollama": ("http://localhost:11434/v1", None, "qwen2.5:7b",
+               "Runs on your computer (ollama.com), free and offline; needs a strong PC"),
+    "other": ("", None, "", "Any OpenAI-compatible API: paste its base URL"),
+}
 
 Progress = Callable[[float, str], None]
 
@@ -165,15 +179,18 @@ def _claude(prompt: str, model: str, key: str | None) -> str:
     return next(b.text for b in resp.content if b.type == "text")
 
 
-def _openai(prompt: str, model: str, key: str | None) -> str:
+def _openai(prompt: str, model: str, key: str | None, base_url: str | None = None) -> str:
     from openai import OpenAI
 
-    client = OpenAI(api_key=key) if key else OpenAI()
-    resp = client.chat.completions.create(
-        model=model,
-        response_format={"type": "json_object"},
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-    )
+    client = OpenAI(api_key=key or ("none" if base_url else None), base_url=base_url or None)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+    try:
+        resp = client.chat.completions.create(model=model, response_format={"type": "json_object"},
+                                              messages=messages)
+    except Exception as e:  # some services don't support JSON mode: ask without it
+        if "response_format" not in str(e) and "json" not in str(e).lower():
+            raise
+        resp = client.chat.completions.create(model=model, messages=messages)
     return resp.choices[0].message.content or ""
 
 
@@ -192,9 +209,23 @@ def _gemini(prompt: str, model: str, key: str | None) -> str:
 LLM_CALLS = {"claude": _claude, "openai": _openai, "gemini": _gemini}
 
 
+def _extract_json(raw: str) -> dict:
+    """Parse JSON even if the model wrapped it in ```json fences or added a sentence."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        a, b = raw.find("{"), raw.rfind("}")
+        if a >= 0 and b > a:
+            return json.loads(raw[a:b + 1])
+        raise
+
+
 def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
-         key: str | None, progress: Progress | None, batch_size: int = 50) -> None:
-    call = LLM_CALLS[engine]
+         key: str | None, progress: Progress | None, batch_size: int = 50, base_url: str | None = None) -> None:
+    if engine == "custom":
+        call = lambda prompt, m, k: _openai(prompt, m, k, base_url)  # noqa: E731
+    else:
+        call = LLM_CALLS[engine]
     done = 0
     for i in range(0, len(segs), batch_size):
         batch = segs[i:i + batch_size]
@@ -202,7 +233,7 @@ def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
         context = [s for s in all_segs[max(0, first - 12):first] if s.km]
         raw = _retry(lambda: call(_payload(batch, context), model, key), what=engine)
         try:
-            data = json.loads(raw)
+            data = _extract_json(raw)
             got = {int(t["id"]): str(t["km"]).strip() for t in data["translations"]}
         except Exception as e:
             raise RuntimeError(f"{engine} returned something that is not the expected JSON: {raw[:300]}") from e
@@ -247,6 +278,8 @@ def translate(
     api_key: str | None = None,
     progress: Progress | None = None,
     log: Callable[[str], None] = print,
+    provider: str = "openrouter",
+    base_url: str = "",
 ) -> None:
     """Fill `km` for every segment that doesn't have it yet (in place)."""
     todo = [s for s in segs if s.zh.strip() and not s.km.strip()]
@@ -254,8 +287,20 @@ def translate(
         return
     if engine not in ENGINES:
         raise ValueError(f"Unknown translator {engine!r}. Choose from: {', '.join(ENGINES)}")
-    model = model or DEFAULT_MODELS.get(engine, "")
-    key = api_key or (os.environ.get(KEY_ENV[engine]) if engine in KEY_ENV else None)
+    if engine == "custom":
+        url, env, suggested, _ = PROVIDERS.get(provider, PROVIDERS["other"])
+        base_url = base_url or url
+        model = model or suggested
+        key = api_key or (os.environ.get(env) if env else None)
+        if not base_url:
+            raise RuntimeError("Paste the API address (base URL) of the AI service.")
+        if not model:
+            raise RuntimeError("Type the model name to use.")
+        if env and not key:
+            raise RuntimeError(f"{provider} needs an API key (paste it in the app or set {env}).")
+    else:
+        model = model or DEFAULT_MODELS.get(engine, "")
+        key = api_key or (os.environ.get(KEY_ENV[engine]) if engine in KEY_ENV else None)
     log(f"Translating {len(todo)} lines with {ENGINES[engine]}" + (f" [{model}]" if model else ""))
 
     if engine == "google":
@@ -265,4 +310,4 @@ def translate(
     else:
         if engine in ("openai", "gemini") and not key:
             raise RuntimeError(f"{ENGINES[engine]} needs an API key (set {KEY_ENV[engine]} or paste it in the app).")
-        _llm(engine, todo, segs, model, key, progress)
+        _llm(engine, todo, segs, model, key, progress, base_url=base_url or None)

@@ -209,13 +209,16 @@ def detect(
             crops = ocr.get_crop_img_list(small, np.array([quads[bi] for _, bi in to_check], dtype=np.float32))
             classify([(tr, c) for (tr, _), c in zip(to_check, crops)])
 
-        still = []
+        alive = []
         for tr in active:
             # still text (watermarks, semi-transparent logos) often drops out of detection
             # for a moment: remember it for a few seconds so the blur doesn't flicker
-            keep = 4.0 if len(tr.keys) >= 3 and not _travels(tr.keys) else 2.5 * dt
-            (still if t - tr.last[0] <= keep else done).append(tr)
-        active = still
+            n = len(tr.keys)
+            still = n >= 3 and not _travels(tr.keys)
+            # a logo seen for 10+ s is surely still there: remember it longer (10 s), short text 4 s
+            keep = (10.0 if n * dt >= 10 else 4.0) if still else 2.5 * dt
+            (alive if t - tr.last[0] <= keep else done).append(tr)
+        active = alive
 
         if progress and n % 30 == 0 and end:
             progress((t - start) / max(1e-6, end - start), f"Finding Chinese text… {t / 60:.1f}/{end / 60:.1f} min")
@@ -245,9 +248,32 @@ def detect(
             ext = dt
         out.append({"keys": [[round(v, 2) for v in key] for key in keys],
                     "static": not moving, "text": tr.text, "dt": ext})
+    out = _merge_still(out)
     if progress:
         progress(1.0, f"Found {len(out)} text tracks to blur")
     return out
+
+
+def _merge_still(tracks: list[dict], max_gap: float = 15.0) -> list[dict]:
+    """Join still-text pieces at the same place with short gaps between them (e.g. a logo
+    the detector lost for a moment), so the blur doesn't switch off in between."""
+    still = sorted((t for t in tracks if t["static"]), key=lambda t: t["keys"][0][0])
+    merged: list[dict] = []
+    for tr in still:
+        a0, b0 = tr["keys"][0][0], tr["keys"][-1][0]
+        box = tr["keys"][0][1:]
+        for m in merged:
+            ma, mb = m["keys"][0][0], m["keys"][-1][0]
+            mbox = m["keys"][0][1:]
+            if _iou(box, mbox) > 0.5 and a0 - mb <= max_gap and ma - b0 <= max_gap:
+                u = [min(box[0], mbox[0]), min(box[1], mbox[1]), max(box[2], mbox[2]), max(box[3], mbox[3])]
+                lo, hi = min(a0, ma), max(b0, mb)
+                m["keys"] = [[lo, *u], [hi, *u]]
+                m["dt"] = max(m["dt"], tr["dt"])
+                break
+        else:
+            merged.append({**tr, "keys": [list(k) for k in tr["keys"]]})
+    return merged + [t for t in tracks if not t["static"]]
 
 
 def save_tracks(tracks: list[dict], path: Path) -> None:

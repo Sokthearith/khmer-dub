@@ -19,17 +19,16 @@ dependencies = [
     "imageio-ffmpeg>=0.5.1",
     "demucs>=4.0.1",
     "gradio>=5.0",
+    "openai>=1.50",
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]
 # Pick ONE: `cpu` (any laptop, also Mac) or `gpu` (NVIDIA GPU on Windows/Linux).
 cpu = ["torch>=2.5", "torchaudio>=2.5"]
 gpu = ["torch>=2.5", "torchaudio>=2.5"]
-# Extra translation engines (optional)
-openai = ["openai>=1.50"]
-gemini = ["google-genai>=1.0"]
+# Optional offline translator (NLLB, ~2.5 GB model download on first use)
 offline = ["transformers>=4.45", "sentencepiece>=0.2"]
-all-translators = ["openai>=1.50", "google-genai>=1.0", "transformers>=4.45", "sentencepiece>=0.2"]
 
 [project.scripts]
 khmerdub = "khmerdub.cli:main"

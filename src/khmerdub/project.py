@@ -36,21 +36,36 @@ class Segment:
 
 @dataclass
 class Settings:
+    # speech recognition
     whisper_model: str = "auto"
+    # translation
     translator: str = "google"
-    translator_model: str = ""  # optional model override for LLM translators
+    translator_model: str = ""  # optional model override for AI translators
+    translator_provider: str = "openrouter"  # for translator == "custom"
+    translator_base_url: str = ""  # for translator == "custom" / provider "other"
+    # voice
     voice_mode: str = "auto"  # auto | sreymom | piseth
+    voice_speed: int = 0  # % faster (+) or slower (-), applied to every line
+    voice_pitch: int = 0  # Hz higher (+) or lower (-)
     remove_voice: bool = True
     background_volume: float = 1.0
     dub_volume: float = 1.0
     max_speedup: float = 1.5
+    # subtitles
     subtitles: str = "burn"  # burn | soft | none
     subtitle_size: float = 1.0
+    subtitle_position: str = "bottom"  # bottom | top
+    subtitle_color: str = "white"  # white | yellow
+    subtitle_box: bool = False  # dark box behind the text
+    # blur
     blur: str = "chinese"  # chinese | all | off  (automatic OCR blur)
     blur_regions: list[dict] = field(default_factory=list)  # manual boxes, see blur.py
     blur_style: str = "blur"  # blur | pixelate | box
     blur_sample_fps: float = 3.0
+    # output
     video_quality: str = "balanced"  # fast | balanced | high
+    resolution: str = "original"  # original | 1080 | 720 | 480
+    keep_original_audio: bool = False  # add the Chinese soundtrack as a 2nd audio track
 
 
 class Project:

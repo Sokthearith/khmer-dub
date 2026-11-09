@@ -28,12 +28,20 @@ TTS_SR = 24000
 CONCURRENCY = 6
 
 
-def _clip_path(tts_dir: Path, text: str, voice: str, rate: int) -> Path:
-    h = hashlib.sha1(f"{voice}|{rate}|{text}".encode()).hexdigest()[:16]
-    return tts_dir / f"{h}.mp3"
+def _clip_path(tts_dir: Path, text: str, voice: str, rate: int, pitch: int = 0) -> Path:
+    key = f"{voice}|{rate}|{text}" if not pitch else f"{voice}|{rate}|{pitch}|{text}"
+    return tts_dir / f"{hashlib.sha1(key.encode()).hexdigest()[:16]}.mp3"
 
 
-async def _synth_one(sem, text: str, voice: str, rate: int, out: Path) -> None:
+def synth_line(tts_dir: Path, text: str, voice: str, rate: int = 0, pitch: int = 0) -> Path:
+    """Make (or reuse) the Khmer audio for one line; used by the app's 'listen' button."""
+    text = _clean_text(text)
+    out = _clip_path(tts_dir, text, voice, rate, pitch)
+    _synth_many([(text, voice, rate, pitch, out)], None, "")
+    return out
+
+
+async def _synth_one(sem, text: str, voice: str, rate: int, pitch: int, out: Path) -> None:
     import edge_tts
 
     if out.exists() and out.stat().st_size > 0:
@@ -42,7 +50,7 @@ async def _synth_one(sem, text: str, voice: str, rate: int, out: Path) -> None:
         for attempt in range(5):
             try:
                 tmp = out.with_suffix(".tmp")
-                await edge_tts.Communicate(text, VOICES[voice], rate=f"{rate:+d}%").save(str(tmp))
+                await edge_tts.Communicate(text, VOICES[voice], rate=f"{rate:+d}%", pitch=f"{pitch:+d}Hz").save(str(tmp))
                 tmp.replace(out)
                 return
             except Exception:
@@ -51,7 +59,7 @@ async def _synth_one(sem, text: str, voice: str, rate: int, out: Path) -> None:
                 await asyncio.sleep(2 * (attempt + 1))
 
 
-def _synth_many(jobs: list[tuple[str, str, int, Path]], progress, label: str) -> None:
+def _synth_many(jobs: list[tuple[str, str, int, int, Path]], progress, label: str) -> None:
     async def main():
         sem = asyncio.Semaphore(CONCURRENCY)
         tasks = [asyncio.create_task(_synth_one(sem, *j)) for j in jobs]
@@ -85,6 +93,8 @@ def build_dub(
     timing_json: Path,
     max_speedup: float = 1.5,
     progress: Callable[[float, str], None] | None = None,
+    speed: int = 0,
+    pitch: int = 0,
 ) -> None:
     tts_dir.mkdir(parents=True, exist_ok=True)
     lines = [s for s in segs if _clean_text(s.km)]
@@ -96,9 +106,9 @@ def build_dub(
         nxt = lines[i + 1].start if i + 1 < len(lines) else total_seconds
         avail[s.id] = max(s.duration, nxt - s.start) * 0.97
 
-    # pass 1: normal speed
+    # pass 1: chosen speed
     p1 = lambda f, m: progress(f * 0.6, m) if progress else None  # noqa: E731
-    _synth_many([(_clean_text(s.km), s.voice, 0, _clip_path(tts_dir, _clean_text(s.km), s.voice, 0))
+    _synth_many([(_clean_text(s.km), s.voice, speed, pitch, _clip_path(tts_dir, _clean_text(s.km), s.voice, speed, pitch))
                  for s in lines], p1, "Khmer voice: line")
 
     clips: dict[int, np.ndarray] = {}
@@ -106,13 +116,15 @@ def build_dub(
     redo = []
     for s in lines:
         text = _clean_text(s.km)
-        a = _load_trimmed(_clip_path(tts_dir, text, s.voice, 0))
+        a = _load_trimmed(_clip_path(tts_dir, text, s.voice, speed, pitch))
         ratio = (a.size / TTS_SR) / avail[s.id] if avail[s.id] > 0 else 1
         if ratio > 1.02:
-            rate = min(int(math.ceil((ratio - 1) * 100)) + 3, int((max_speedup - 1) * 100))
-            if rate > 0:
+            # edge-tts rate is relative to normal speed: combine the base speed with the extra needed
+            need = (1 + speed / 100) * ratio
+            rate = min(int(math.ceil((need - 1) * 100)) + 3, int((max_speedup - 1) * 100) + max(speed, 0))
+            if rate > speed:
                 rates[s.id] = rate
-                redo.append((text, s.voice, rate, _clip_path(tts_dir, text, s.voice, rate)))
+                redo.append((text, s.voice, rate, pitch, _clip_path(tts_dir, text, s.voice, rate, pitch)))
         clips[s.id] = a
 
     # pass 2: faster versions for lines that don't fit
@@ -120,7 +132,7 @@ def build_dub(
     _synth_many(redo, p2, "Khmer voice: speeding up line")
     for s in lines:
         if s.id in rates:
-            clips[s.id] = _load_trimmed(_clip_path(tts_dir, _clean_text(s.km), s.voice, rates[s.id]))
+            clips[s.id] = _load_trimmed(_clip_path(tts_dir, _clean_text(s.km), s.voice, rates[s.id], pitch))
 
     # place clips on the timeline
     n = int(math.ceil(total_seconds * TTS_SR)) + TTS_SR
@@ -136,8 +148,9 @@ def build_dub(
             track[i0:i1] += a[: i1 - i0]
         end = start + a.size / TTS_SR
         cursor = end + 0.08
-        timing[s.id] = {"start": round(start, 3), "end": round(max(end, s.end if start == s.start else end), 3),
-                        "rate": rates.get(s.id, 0)}
+        # subtitle shows while the Khmer voice speaks (and at least as long as the original line if on time)
+        sub_end = max(end, s.end) if start == s.start else end
+        timing[s.id] = {"start": round(start, 3), "end": round(sub_end, 3), "rate": rates.get(s.id, speed)}
     peak = float(np.abs(track).max()) if track.size else 0
     if peak > 0.98:
         track *= 0.98 / peak

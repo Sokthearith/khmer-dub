@@ -28,6 +28,9 @@ def render(
     timeline: blurmod.Timeline | None = None,
     blur_style: str = "blur",
     quality: str = "balanced",
+    resolution: str = "original",
+    extra_audio: Path | None = None,
+    sub_style: dict | None = None,
     start: float = 0.0,
     duration: float | None = None,
     progress: Callable[[float, str], None] | None = None,
@@ -51,8 +54,11 @@ def render(
         for f in FONTS_DIR.glob("*.ttf"):
             if not (fonts / f.name).exists():
                 shutil.copy(f, fonts / f.name)
-        write_ass(sub_lines, workdir / "render.ass", info.width, info.height, subtitle_size, offset=start)
+        write_ass(sub_lines, workdir / "render.ass", info.width, info.height, subtitle_size, offset=start,
+                  **(sub_style or {}))
         vf.append("ass=render.ass:fontsdir=fonts")  # relative paths: avoids Windows path escaping
+    if resolution not in ("", "original") and info.height > int(resolution):
+        vf.append(f"scale=-2:{int(resolution)}")
     vf.append("format=yuv420p")
 
     use_frames = bool(timeline)
@@ -71,12 +77,19 @@ def render(
 
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", *vin,
            "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(audio)]
-    maps = ["-map", "0:v:0", "-map", "1:a:0"]
+    maps = ["-map", "0:v:0", "-map", "1:a:0", "-metadata:s:a:0", "language=khm", "-metadata:s:a:0", "title=Khmer",
+            "-disposition:a:0", "default"]
+    n_in = 2
+    if extra_audio is not None and Path(extra_audio).exists():
+        cmd += ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(extra_audio)]
+        maps += ["-map", f"{n_in}:a:0", "-metadata:s:a:1", "language=zho", "-metadata:s:a:1",
+                 "title=Chinese (original)", "-disposition:a:1", "0"]
+        n_in += 1
     if subtitles == "soft" and sub_lines:
         srt = workdir / "render.srt"
         write_srt([(a - start, b - start, t) for a, b, t in sub_lines if b > start], srt)
         cmd += ["-i", str(srt)]
-        maps += ["-map", "2:s:0", "-c:s", "mov_text", "-metadata:s:s:0", "language=khm"]
+        maps += ["-map", f"{n_in}:s:0", "-c:s", "mov_text", "-metadata:s:s:0", "language=khm"]
     cmd += maps + ["-vf", ",".join(vf), "-c:v", "libx264", "-preset", preset, "-crf", crf,
                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
 

@@ -38,16 +38,27 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--stage", choices=["prepare", "produce", "all"], default="all",
                    help="prepare = transcript+translation only (then edit segments.json); produce = voice+video")
     r.add_argument("--translator", choices=list(ENGINES), help="translation engine")
-    r.add_argument("--translator-model", help="model name for LLM translators")
+    r.add_argument("--translator-model", help="model name for AI translators")
+    r.add_argument("--provider", choices=["openrouter", "groq", "deepseek", "ollama", "other"],
+                   help="AI service for --translator custom")
+    r.add_argument("--base-url", help="API address for --translator custom --provider other")
     r.add_argument("--api-key", help="API key for the translator (or set the env var)")
     r.add_argument("--retranslate", action="store_true", help="translate all lines again")
     r.add_argument("--whisper-model", help="auto | small | medium | large-v3 | large-v3-turbo")
     r.add_argument("--voice", choices=["auto", "sreymom", "piseth"], help="auto = by speaker pitch")
+    r.add_argument("--voice-speed", type=int, help="speaking speed in %% (e.g. 10 or -10)")
+    r.add_argument("--voice-pitch", type=int, help="voice pitch in Hz (e.g. 4 or -4)")
     r.add_argument("--keep-chinese-voice", action="store_true", help="don't remove the Chinese voice, just lower it")
+    r.add_argument("--keep-chinese-audio", action="store_true",
+                   help="also add the original Chinese sound as a 2nd audio track")
     r.add_argument("--zh-srt", help="use this Chinese .srt instead of speech recognition")
     r.add_argument("--km-srt", help="use this Khmer .srt (skip transcript and translation)")
     r.add_argument("--subtitles", choices=["burn", "soft", "none"])
     r.add_argument("--subtitle-size", type=float)
+    r.add_argument("--subtitle-position", choices=["bottom", "top"])
+    r.add_argument("--subtitle-color", choices=["white", "yellow"])
+    r.add_argument("--subtitle-box", action="store_true", help="dark box behind the subtitles")
+    r.add_argument("--resolution", choices=["original", "1080", "720", "480"])
     r.add_argument("--blur", choices=["chinese", "all", "off"], help="automatic text blur")
     r.add_argument("--blur-region", type=_region, action="append", default=None,
                    help="manual blur box x,y,w,h[,start,end] in fractions of the frame; repeatable")
@@ -71,11 +82,18 @@ def main(argv: list[str] | None = None) -> None:
                       ("whisper_model", a.whisper_model), ("voice_mode", a.voice), ("subtitles", a.subtitles),
                       ("subtitle_size", a.subtitle_size), ("blur", a.blur), ("blur_style", a.blur_style),
                       ("blur_sample_fps", a.blur_fps), ("max_speedup", a.max_speedup), ("video_quality", a.quality),
-                      ("blur_regions", a.blur_region)]:
+                      ("blur_regions", a.blur_region), ("translator_provider", a.provider),
+                      ("translator_base_url", a.base_url), ("voice_speed", a.voice_speed),
+                      ("voice_pitch", a.voice_pitch), ("subtitle_position", a.subtitle_position),
+                      ("subtitle_color", a.subtitle_color), ("resolution", a.resolution)]:
         if val is not None:
             setattr(s, attr, val)
     if a.keep_chinese_voice:
         s.remove_voice = False
+    if a.keep_chinese_audio:
+        s.keep_original_audio = True
+    if a.subtitle_box:
+        s.subtitle_box = True
 
     def progress(f: float, msg: str) -> None:
         sys.stderr.write(f"\r{f * 100:5.1f}%  {msg[:90]:<90}")

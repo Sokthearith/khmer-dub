@@ -104,9 +104,13 @@ def write_zh_srt(segs: list[Segment], path: Path) -> None:
     path.write_text("\n".join(blocks), encoding="utf-8")
 
 
+COLORS = {"white": "&H00FFFFFF", "yellow": "&H0000F0FF", "cyan": "&H00FFFF80"}
+
+
 def write_ass(lines, path: Path, width: int, height: int, size: float = 1.0,
-              font: str = "Noto Sans Khmer", offset: float = 0.0) -> None:
-    fs = round(min(height, width * 9 / 16) * 0.052 * size)
+              font: str = "Noto Sans Khmer", offset: float = 0.0, position: str = "bottom",
+              color: str = "white", box: bool = False) -> None:
+    fs = round(min(height, width * 9 / 16) * 0.056 * size)
     outline = max(1.5, fs * 0.08)
     margin_v = round(height * 0.05)
     max_len = max(12, int(width * 0.88 / (fs * 0.62)))
@@ -119,7 +123,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{fs},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,{outline:.1f},1,2,{round(width * 0.05)},{round(width * 0.05)},{margin_v},1
+Style: Default,{font},{fs},{COLORS.get(color, COLORS["white"])},&H00FFFFFF,{"&H60000000" if box else "&H00000000"},{"&H60000000" if box else "&H64000000"},1,0,0,0,100,100,0,0,{3 if box else 1},{(fs * 0.18 if box else outline):.1f},{0 if box else 1},{8 if position == "top" else 2},{round(width * 0.05)},{round(width * 0.05)},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
