@@ -142,17 +142,21 @@ def _sampled_frames(video: Path, fps: float, w: int, h: int, start: float, end: 
         cmd += ["-t", f"{end - start:.3f}"]
     cmd += ["-an", "-vf", f"fps={fps:g},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     size = w * h * 3
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=size * 4)
+    from . import jobs
+
+    proc = jobs.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=size * 4)
     try:
         while True:
             buf = proc.stdout.read(size)
             if len(buf) < size:
                 break
             yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
+        jobs.check()  # frames ran out because Stop ended ffmpeg: not the real end of the video
     finally:
         proc.stdout.close()
         proc.kill()
         proc.wait()
+        jobs.done(proc)
 
 
 def detect(

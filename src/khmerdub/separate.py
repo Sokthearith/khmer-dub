@@ -29,10 +29,14 @@ def separate(
     from demucs.apply import apply_model
     from demucs.pretrained import get_model
 
+    from . import jobs
+
     device = torch_device()
     model = get_model(model_name)
     model.eval()
     vocals_idx = model.sources.index("vocals")
+    for m in getattr(model, "models", None) or [model]:  # Stop is checked before every ~8 s piece, not per chunk
+        m.register_forward_pre_hook(lambda _module, _inputs: jobs.check())
 
     info = sf.info(str(original_wav))
     sr, total = info.samplerate, info.frames
@@ -41,6 +45,8 @@ def separate(
     chunk, pad = CHUNK_SECONDS * sr, PAD_SECONDS * sr
 
     tmp_v, tmp_m = vocals_out.with_suffix(".part.wav"), music_out.with_suffix(".part.wav")
+    if progress:
+        progress(0.0, f"Removing Chinese voice… 0/{total / sr / 60:.0f} min")
     with (
         sf.SoundFile(str(original_wav)) as src,
         sf.SoundFile(str(tmp_v), "w", sr, 2, subtype="PCM_16") as fv,

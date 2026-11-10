@@ -10,6 +10,7 @@ from typing import Callable
 import numpy as np
 
 from . import blur as blurmod
+from . import jobs
 from .media import ffmpeg_exe, ffmpeg_has_filter, video_info
 from .subtitles import write_ass, write_srt
 
@@ -76,6 +77,8 @@ def render(
     else:
         vin = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(video)]
 
+    out = Path(out)
+    part = out.with_name(f"{out.stem}.part{out.suffix}")  # swapped in only when complete
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", *vin,
            "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(audio)]
     maps = ["-map", "0:v:0", "-map", "1:a:0", "-metadata:s:a:0", "language=khm", "-metadata:s:a:0", "title=Khmer",
@@ -93,11 +96,11 @@ def render(
         maps += ["-map", f"{n_in}:s:0", "-c:s", "mov_text", "-metadata:s:s:0", "language=khm"]
     cmd += maps + ["-vf", ",".join(vf), "-c:v", "libx264", "-preset", preset, "-crf", crf,
                    "-force_key_frames", "expr:gte(t,n_forced*30)",
-                   "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
+                   "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(part)]
 
     errlog = workdir / "ffmpeg_render.log"
     with open(errlog, "w") as ef:
-        proc = subprocess.Popen(cmd, cwd=workdir, stdin=subprocess.PIPE if use_frames else None, stderr=ef)
+        proc = jobs.popen(cmd, cwd=workdir, stdin=subprocess.PIPE if use_frames else None, stderr=ef)
         try:
             if use_frames:
                 n = int(round(duration * info.fps))
@@ -107,6 +110,7 @@ def render(
                         ok, frame = cap.read()
                         if not ok:
                             break
+                    jobs.check()
                     t = start + i / info.fps
                     boxes = timeline.boxes(t)
                     if boxes:
@@ -120,11 +124,19 @@ def render(
             proc.wait()
         except (BrokenPipeError, OSError):  # ffmpeg stopped early (on Windows: OSError); its log is shown below
             proc.wait()
+        except jobs.Stopped:
+            proc.kill()
+            proc.wait()
         finally:
+            jobs.done(proc)
             if cap is not None:
                 cap.release()
-    if proc.returncode != 0:
+    if jobs.requested() or proc.returncode != 0:
+        part.unlink(missing_ok=True)  # the previous video (if any) stays as it was
+        if jobs.requested():
+            raise jobs.Stopped()
         raise RuntimeError(f"ffmpeg failed while making the video:\n{errlog.read_text()[-3000:]}")
+    part.replace(out)
     if progress:
         progress(1.0, "Video done")
     return out

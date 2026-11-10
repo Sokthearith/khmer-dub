@@ -76,8 +76,9 @@ behaviour (only speed up when a line would run into the next)? *Settings → Mor
 Bookmark a project: `http://localhost:7860/?project=NAME&step=review&line=120` opens it at that step and line.
 Many episodes? Use the **Batch** tab: add them all and let it run (overnight, for example).
 
-Everything is saved in the `projects` folder. If you stop halfway or close the app, pick the project again
-and continue; finished steps are not repeated. After you edit a line, only that line's voice is made again.
+To stop a long job, press **Stop** at the top, next to the progress; it stops within seconds. Everything is
+saved in the `projects` folder. If you stop halfway or close the app, pick the project again and continue;
+finished steps are not repeated (the step that was running starts over). After you edit a line, only that line's voice is made again.
 
 ### Translators
 

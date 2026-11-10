@@ -19,7 +19,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from . import __version__
+from . import __version__, jobs
 from .project import Project, Settings
 from .translate import DEFAULT_MODELS, ENGINES, PROVIDERS
 
@@ -217,6 +217,12 @@ footer {{ border-top: 1px solid {RULE}; opacity: .7; }}
   font-weight: 600; font-variant-numeric: tabular-nums; }}
 .kd-counts .ok b {{ color: {JADE}; }}
 .kd-working {{ font-size: 14px; color: {TUR}; }}
+.kd-stop {{ font: inherit; font-size: 13px; font-weight: 600; color: {SILK}; background: transparent; cursor: pointer;
+  border: 1px solid {SILK_2}; border-radius: 6px; padding: 4px 14px; min-height: 32px; margin-left: -12px; }}
+.kd-stop:hover {{ border-color: {TUR}; color: {TUR}; }}
+.kd-stop:focus-visible {{ outline: 2px solid {TUR}; outline-offset: 2px; }}
+.kd-stop:disabled {{ opacity: .6; cursor: default; }}
+#kd-stop-btn {{ display: none !important; }}
 /* the shuttle: a turmeric thread crossing the header while a job runs */
 .kd-shuttle {{ position: absolute; left: 232px; right: 0; bottom: -1px; height: 2px; overflow: hidden; }}
 .kd-shuttle i {{ position: absolute; top: 0; height: 2px; width: 22%; background: {TUR};
@@ -480,8 +486,14 @@ def table_value(proj: Project | None, cur: int | None = None, only_fix: bool = F
 
 def header_html(proj: Project | None, working: str = "") -> str:
     mark = '<div class="kd-mark"><b>Khmer Dub</b><span>ឌប់ខ្មែរ</span></div>'
+    work = ""
+    if working:  # a job is running: show its step, and Stop (until it is stopping)
+        stop = ("" if working.startswith("Stopping") else
+                '<button type="button" class="kd-stop" title="Stop this job. Finished steps are kept.">Stop</button>')
+        work = f'<span class="kd-working">{html.escape(working)}</span>{stop}'
     if proj is None:
-        body = '<div class="kd-proj"><span class="empty">No video open. Start with Upload.</span></div>'
+        body = (f'<div class="kd-proj">{work}</div>' if work else
+                '<div class="kd-proj"><span class="empty">No video open. Start with Upload.</span></div>')
     else:
         segs = proj.load_segments() if proj.has_segments() else []
         n, n_km, n_ck = len(segs), sum(1 for s in segs if s.km.strip()), sum(1 for s in segs if s.checked)
@@ -493,7 +505,6 @@ def header_html(proj: Project | None, working: str = "") -> str:
         except Exception:
             meta = ""
         video = "ready" if proj.output_video.exists() else "not yet"
-        work = f'<span class="kd-working">{html.escape(working)}</span>' if working else ""
         body = (f'<div class="kd-proj"><h1>{html.escape(proj.dir.name)}</h1><span class="meta">{meta}</span>{work}'
                 f'<div class="kd-counts"><div>Lines<b>{n}</b></div>'
                 f'<div class="{"ok" if n and n_km == n else ""}">In Khmer<b>{n_km}</b></div>'
@@ -588,26 +599,47 @@ def run_in_background(work, progress: gr.Progress):
         lines.append(msg)
 
     def prog(f: float, m: str) -> None:
+        jobs.check()  # Stop was pressed: end here, at a safe point
         state["f"], state["m"] = f, m
 
     def target():
         try:
             out["result"] = work(log, prog)
+        except jobs.Stopped as e:
+            out["error"] = e
+            lines.append(STOPPED)
         except Exception as e:  # shown in the app
             out["error"] = e
             lines.append("ERROR: " + str(e))
             lines.append(traceback.format_exc(limit=4))
+        finally:
+            jobs.end()
 
+    jobs.begin()
     th = threading.Thread(target=target, daemon=True)
     th.start()
     while th.is_alive():
+        msg = "Stopping… (at the next safe point)" if jobs.requested() else f"{state['m']} · {state['f'] * 100:.0f}%"
         progress(state["f"], desc=state["m"])
-        yield "\n".join(lines[-300:]), f"{state['m']} · {state['f'] * 100:.0f}%", False, None, None
+        yield "\n".join(lines[-300:]), msg, False, None, None
         time.sleep(1.0)
     yield "\n".join(lines[-300:]), state["m"], True, out.get("result"), out.get("error")
 
 
-def _friendly(err: Exception) -> str:
+STOPPED = "Stopped. Finished steps are kept: press the same button again to continue."
+
+
+def _stopped(err) -> bool:
+    """The job was stopped on purpose: say so quietly (no red error)."""
+    if isinstance(err, jobs.Stopped):
+        gr.Info(STOPPED)
+        return True
+    return False
+
+
+def _friendly(err: BaseException) -> str:
+    if isinstance(err, jobs.Stopped):
+        return STOPPED
     msg = str(err)
     if "Could not extract audio" in msg:
         return "This video has no sound track, or the file is damaged."
@@ -655,6 +687,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         editor_for = gr.State(None)  # "<project folder>|<line>" the editor is showing; edits go only there
 
         head = gr.HTML(header_html(None), elem_id="kd-head")
+        stop_trigger = gr.Button("Stop", elem_id="kd-stop-btn")  # clicked by the header's Stop (STOP_JS)
+
+        def do_stop() -> None:
+            jobs.request()  # the running job ends at its next safe point; nothing happens if none is running
+
+        stop_trigger.click(do_stop, None, None, queue=False, show_progress="hidden")
 
         # update strip: shown only when a newer release exists (or one was just installed)
         with gr.Row(visible=False, elem_id="kd-update", equal_height=True) as upd_row:
@@ -1062,6 +1100,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield {head: header_html(proj, msg), log_box: text, prep_msg: msg}
             if err:
                 yield {head: header_html(proj), prep_msg: f"**{_friendly(err)}**", log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
             out = {head: header_html(proj), table: table_value(proj), weft: weft_html(proj), log_box: text,
                    prep_msg: "Done. Check the lines in Review.", **go("review", str(proj.dir))}
@@ -1106,6 +1146,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield out
             if err:
                 yield {head: header_html(proj), log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
             gr.Info("The Khmer video is ready.")
             yield {head: header_html(proj), log_box: text, table: table_value(proj), weft: weft_html(proj),
@@ -1318,6 +1360,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield {head: header_html(proj, msg), log_box: text}
             if err:
                 yield {head: header_html(proj), log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
             gr.Info("Voices made. Lines marked in red run over the character; fix them with the timing tools.")
             out = refresh_editor(d, proj)
@@ -1450,6 +1494,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             for text, msg, _done, res, err in run_in_background(work, progress):
                 yield {scan_msg: msg, head: header_html(proj, msg), log_box: text}
             if err:
+                yield {scan_msg: _friendly(err), head: header_html(proj), log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
             n_move = sum(1 for tr in res if not tr["static"])
             yield {scan_msg: f"Found {len(res)} pieces of Chinese text, {n_move} of them moving. Move the slider "
@@ -1470,12 +1517,16 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
             text, res = "", None
             for text, msg, _done, res, err in run_in_background(work, progress):
-                yield {log_box: text, scan_msg: msg}
+                yield {log_box: text, scan_msg: msg, head: header_html(proj, msg)}
             if err:
+                yield {scan_msg: _friendly(err), head: header_html(proj), log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
-            yield {preview_vid: str(res), log_box: text, scan_msg: ""}
+            yield {preview_vid: str(res), log_box: text, scan_msg: "", head: header_html(proj)}
 
-        preview_btn.click(do_preview, scan_in, [preview_vid, log_box, scan_msg], show_progress_on=[preview_vid], **HEAVY)
+        preview_btn.click(do_preview, scan_in, [preview_vid, log_box, scan_msg, head], show_progress_on=[preview_vid],
+                          **HEAVY)
         to_export.click(lambda p: go("export", p), [proj_dir], [tabs, *rail_list], queue=False)
 
         # ---- export
@@ -1493,6 +1544,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield {head: header_html(proj, msg), log_box: text}
             if err:
                 yield {head: header_html(proj), log_box: text}
+                if _stopped(err):
+                    return
                 raise gr.Error(_friendly(err))
             gr.Info("The Khmer video is ready.")
             yield {head: header_html(proj), log_box: text, result: str(res),
@@ -1542,12 +1595,14 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             rows = [[Path(f).name, "waiting"] for f in files]
             finished: list[str] = []
             key = d.get(api_key) or None
+            current: dict = {"proj": None}  # the episode being made, for the header
 
             def work(log, prog):
                 for i, f in enumerate(files):
                     rows[i][1] = "working"
                     try:
                         proj = project_from_upload(f)
+                        current["proj"] = proj
                         s = settings_from(d, proj, [])
 
                         def p(fr, m, i=i):
@@ -1560,14 +1615,20 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                         log(f"{Path(f).name}: {e}")
                 return finished
 
-            text = ""
-            for text, _msg, _done, _res, _err in run_in_background(work, progress):
-                yield {batch_table: [r[:] for r in rows], log_box: text}
+            text, err = "", None
+            for text, msg, _done, _res, err in run_in_background(work, progress):
+                yield {batch_table: [r[:] for r in rows], log_box: text, head: header_html(current["proj"], msg)}
+            if isinstance(err, jobs.Stopped):
+                for r in rows:
+                    r[1] = {"working": "stopped", "waiting": "not started"}.get(r[1], r[1])
+                _stopped(err)
+            opened = d.get(proj_dir)
             yield {batch_table: rows, batch_out: finished or None, log_box: text,
-                   existing: gr.update(choices=list_projects())}
+                   existing: gr.update(choices=list_projects()),
+                   head: header_html(project_from_dir(opened) if opened else None)}
 
-        batch_btn.click(do_batch, {batch_files, api_key, boxes, *setting_comps},
-                        [batch_table, batch_out, log_box, existing], show_progress_on=[batch_table], **HEAVY)
+        batch_btn.click(do_batch, {batch_files, api_key, proj_dir, boxes, *setting_comps},
+                        [batch_table, batch_out, log_box, existing, head], show_progress_on=[batch_table], **HEAVY)
 
         # ---- updates
         def update_banner(use_cache: bool = True) -> dict:
@@ -1722,6 +1783,8 @@ parts you can dub one at a time. Everything is saved in the `projects` folder, s
 
 **Tips**
 
+- To stop a long job, press **Stop** at the top, next to the progress. Finished steps are kept: press the same
+  button again later to continue.
 - A one-hour episode takes about two hours without a graphics card. Use **Do everything automatically** or
   **Batch** and let it run.
 - Same name translated differently? Review → All lines → Find and Replace.
@@ -1747,6 +1810,20 @@ Command line: `uv run --extra cpu khmerdub run video.mp4 --help` and `khmerdub c
 """
 
 
+# the header's Stop button is plain HTML (it is redrawn every second): pass its click to the hidden app button
+STOP_JS = """<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest ? e.target.closest('.kd-stop') : null;
+  if (!b) return;
+  e.preventDefault();
+  b.disabled = true;
+  b.textContent = 'Stopping…';
+  var t = document.getElementById('kd-stop-btn');
+  if (t) t.click();
+});
+</script>"""
+
+
 def launch(port: int | None = 7860, share: bool = False, projects_dir: str | None = None,
            inbrowser: bool = True, window: bool = False) -> None:
     """Start the app. window=True shows it in its own app window and stops when that window closes."""
@@ -1761,7 +1838,8 @@ def launch(port: int | None = 7860, share: bool = False, projects_dir: str | Non
     app.queue(default_concurrency_limit=1).launch(
         server_port=port, share=share, inbrowser=inbrowser and not window,
         allowed_paths=[str(PROJECTS), str(FONTS.resolve())], favicon_path=str(ICON_PNG),
-        theme=hol_theme(), css=build_css(), max_file_size="20gb", prevent_thread_lock=window, quiet=window,
+        theme=hol_theme(), css=build_css(), head=STOP_JS, max_file_size="20gb", prevent_thread_lock=window,
+        quiet=window,
     )
     if not window:
         return

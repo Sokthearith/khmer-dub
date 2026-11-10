@@ -42,10 +42,20 @@ def ffmpeg_has_filter(name: str) -> bool:
 
 
 def run_ffmpeg(args: list[str], cwd: str | Path | None = None) -> None:
+    from . import jobs
+
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", *args]
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    p = jobs.popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _, stderr = p.communicate()
+    finally:
+        jobs.done(p)
+    if jobs.requested():  # Stop ended it: don't leave a half-written file behind
+        if p.returncode != 0 and args and not str(args[-1]).startswith("-"):
+            (Path(cwd or ".") / str(args[-1])).unlink(missing_ok=True)
+        raise jobs.Stopped()
     if p.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed: {' '.join(cmd)}\n{p.stderr[-3000:]}")
+        raise RuntimeError(f"ffmpeg failed: {' '.join(cmd)}\n{stderr[-3000:]}")
 
 
 def load_audio(path: str | Path, sr: int = SR, channels: int = 2) -> np.ndarray:
