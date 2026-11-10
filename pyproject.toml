@@ -1,6 +1,6 @@
 [project]
 name = "khmerdub"
-version = "0.2.0"
+version = "0.3.0"
 description = "Turn Chinese videos into Khmer: transcript, translation, Khmer voice dub (Sreymom/Piseth), Khmer subtitles and Chinese text blur."
 readme = "README.md"
 license = "MIT"
