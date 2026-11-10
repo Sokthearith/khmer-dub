@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Callable
 
@@ -221,7 +222,9 @@ def _extract_json(raw: str) -> dict:
 
 
 def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
-         key: str | None, progress: Progress | None, batch_size: int = 50, base_url: str | None = None) -> None:
+         key: str | None, progress: Progress | None, batch_size: int = 50, base_url: str | None = None,
+         label: str = "") -> None:
+    label = label or engine  # the name people know: "groq", not "custom"
     if engine == "custom":
         call = lambda prompt, m, k: _openai(prompt, m, k, base_url)  # noqa: E731
     else:
@@ -231,12 +234,12 @@ def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
         batch = segs[i:i + batch_size]
         first = all_segs.index(batch[0])
         context = [s for s in all_segs[max(0, first - 12):first] if s.km]
-        raw = _retry(lambda: call(_payload(batch, context), model, key), what=engine)
+        raw = _retry(lambda: call(_payload(batch, context), model, key), what=label)
         try:
             data = _extract_json(raw)
             got = {int(t["id"]): str(t["km"]).strip() for t in data["translations"]}
         except Exception as e:
-            raise RuntimeError(f"{engine} returned something that is not the expected JSON: {raw[:300]}") from e
+            raise RuntimeError(f"{label} returned something that is not the expected JSON: {raw[:300]}") from e
         for s in batch:
             if got.get(s.id):
                 s.km = got[s.id]
@@ -245,19 +248,31 @@ def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
             _google(missing, None)
         done += len(batch)
         if progress:
-            progress(done / len(segs), f"Translating ({engine})… {done}/{len(segs)}")
+            progress(done / len(segs), f"Translating ({label})… {done}/{len(segs)}")
 
 
 # ---------------------------------------------------------------- NLLB -------
+KHMER_GAP = re.compile(r"(?<=[\u1780-\u17ff]) +(?=[\u1780-\u17ff])")
+
+
 def _nllb(segs: list[Segment], model: str, progress: Progress | None) -> None:
     import torch
-    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    try:
+        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+    except ImportError as e:
+        raise RuntimeError("The offline translator is not installed. Start Khmer Dub with its start script "
+                           "(it installs it), or choose Google Translate.") from e
 
     from .devices import torch_device
 
     dev = torch_device()
     tok = AutoTokenizer.from_pretrained(model, src_lang="zho_Hans")
-    net = AutoModelForSeq2SeqLM.from_pretrained(model).to(dev).eval()
+    try:  # the .bin weights only: otherwise transformers fetches a second 2.4 GB copy in the background
+        net = AutoModelForSeq2SeqLM.from_pretrained(model, use_safetensors=False)
+    except (OSError, ValueError):  # a model published only as .safetensors
+        net = AutoModelForSeq2SeqLM.from_pretrained(model)
+    net = net.to(dev).eval()
     bos = tok.convert_tokens_to_ids("khm_Khmr")
     for i in range(0, len(segs), 16):
         batch = segs[i:i + 16]
@@ -265,7 +280,8 @@ def _nllb(segs: list[Segment], model: str, progress: Progress | None) -> None:
         with torch.no_grad():
             out = net.generate(**enc, forced_bos_token_id=bos, max_new_tokens=200, num_beams=4)
         for s, km in zip(batch, tok.batch_decode(out, skip_special_tokens=True)):
-            s.km = km.strip()
+            # NLLB puts spaces between Khmer words; Khmer writes them together (invisible word breaks)
+            s.km = KHMER_GAP.sub("\u200b", km.strip())
         if progress:
             progress(min(1, (i + 16) / len(segs)), f"Translating (offline)… {min(i + 16, len(segs))}/{len(segs)}")
 
@@ -310,7 +326,8 @@ def translate(
     else:
         if engine in ("openai", "gemini") and not key:
             raise RuntimeError(f"{ENGINES[engine]} needs an API key (set {KEY_ENV[engine]} or paste it in the app).")
-        _llm(engine, todo, segs, model, key, progress, base_url=base_url or None)
+        _llm(engine, todo, segs, model, key, progress, base_url=base_url or None,
+             label=provider if engine == "custom" else engine)
 
 
 # ---------------------------------------------------------------- shorten ----
@@ -337,11 +354,12 @@ def shorten(zh: str, km: str, seconds: float, engine: str, model: str = "", api_
               f"Rewrite the Khmer so it keeps the meaning, tone and names, but can be spoken naturally in about "
               f"{seconds:.1f} seconds (about {syllables} Khmer syllables). Spoken, everyday Khmer.\n"
               'Reply as JSON {"translations": [{"id": 0, "km": "..."}]}.')
-    raw = _retry(lambda: call(prompt, model, key), what=engine)
+    label = provider if engine == "custom" else engine
+    raw = _retry(lambda: call(prompt, model, key), what=label)
     try:
         out = str(_extract_json(raw)["translations"][0]["km"]).strip()
     except Exception as e:
-        raise RuntimeError(f"{engine} did not return a shorter line: {raw[:200]}") from e
+        raise RuntimeError(f"{label} did not return a shorter line: {raw[:200]}") from e
     if not out:
         raise RuntimeError("The AI returned an empty line.")
     return out

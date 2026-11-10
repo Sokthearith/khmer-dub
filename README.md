@@ -98,13 +98,9 @@ time. Keys are only kept while the app is open; they are never written to disk. 
 environment variables (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
 `GROQ_API_KEY`, `DEEPSEEK_API_KEY`). Model names change over time: type a newer one in **Model** if needed.
 
-NLLB offline needs one extra install (about 2.5 GB, once):
-
-```bash
-uv sync --extra cpu --extra offline
-```
-
-Then start with `uv run --extra cpu --extra offline khmerdub app`.
+NLLB offline downloads its model (about 2.5 GB) the first time you use it; after that it works without
+internet. If you start the app yourself instead of with the start script, add `--extra offline`
+(`uv run --extra cpu --extra offline khmerdub app`).
 
 ### How the blur works
 
@@ -166,7 +162,9 @@ video, srt = client.predict(handle_file("episode01.mp4"), "google", "", "auto", 
 ```
 
 Arguments: video, translator (`google` `gemini` `claude` `openai` `custom` `nllb`), API key, voice
-(`auto` `sreymom` `piseth`), blur (`chinese` `all` `off`), subtitles (`burn` `soft` `none`).
+(`auto` `sreymom` `piseth`), blur (`chinese` `all` `off`), subtitles (`burn` `soft` `none`), and optionally
+model, provider (`openrouter` `groq` `deepseek` `ollama` `other`) and base URL. A wrong value is refused
+with the list of allowed ones.
 `khmerdub app` opens the app window (what the start scripts run); `khmerdub ui` serves it to a browser instead, and `khmerdub ui --share` adds a temporary public link.
 
 **How it works**

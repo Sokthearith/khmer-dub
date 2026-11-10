@@ -1,8 +1,9 @@
 """Cut tool: keep a time range and/or split a video into parts of N minutes.
 
 Uses stream copy (no re-encoding), so even a 1-hour episode is cut in seconds.
-Cuts land on keyframes: exact for videos made by Khmer Dub (they get a keyframe
-every 30 s), within a few seconds for other videos.
+Copied cuts land on keyframes: 10/15-minute parts of a video made by Khmer Dub are exact
+(it gets a keyframe every 30 s); other cuts can start a few seconds early. A short trim
+(5 minutes or less, e.g. a clip for TikTok) is re-encoded instead, so it starts exactly.
 """
 
 from __future__ import annotations
@@ -38,6 +39,14 @@ def fmt(t: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+EXACT_TRIM_MAX = 300  # seconds: trims up to this long are re-encoded so they start on the exact second
+
+
+def lengths(parts: list[Path]) -> str:
+    """'0:20, 0:10, 0:06': the real length of each part."""
+    return ", ".join(fmt(video_info(p).duration) for p in parts)
+
+
 def cut(video: Path, out_dir: Path, every_minutes: float | None = None,
         start=None, end=None, name: str | None = None) -> list[Path]:
     """Keep [start, end] (optional) and split it into parts of `every_minutes` (optional)."""
@@ -64,7 +73,12 @@ def cut(video: Path, out_dir: Path, every_minutes: float | None = None,
     else:
         label = f"{fmt(a)}-{fmt(b)}".replace(":", ".") if b else fmt(a).replace(":", ".")
         out = out_dir / f"{stem}_{label}{ext}"
-        run_ffmpeg([*rng, *common, str(out)])
+        if a and b and b - a <= EXACT_TRIM_MAX:  # short clip: re-encode so it starts exactly at `a`
+            run_ffmpeg([*rng, "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-c:v", "libx264", "-preset",
+                        "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
+                        "-c:s", "copy", "-movflags", "+faststart", str(out)])
+        else:
+            run_ffmpeg([*rng, *common, str(out)])
         parts = [out]
     if not parts:
         raise RuntimeError("Nothing was cut. Check the times.")

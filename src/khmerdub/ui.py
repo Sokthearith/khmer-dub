@@ -611,6 +611,8 @@ def _friendly(err: Exception) -> str:
     msg = str(err)
     if "Could not extract audio" in msg:
         return "This video has no sound track, or the file is damaged."
+    if msg.startswith("The Khmer voice service"):
+        return msg
     if "edge" in msg.lower() or "WSServerHandshake" in msg or "ClientConnector" in msg:
         return ("Could not reach the Khmer voice service (it needs internet). Check the connection and press "
                 "the button again; it continues where it stopped.")
@@ -1517,7 +1519,13 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 parts = cut(video, proj.path("parts"), minutes or None, a, b, name=name)
             except ValueError as e:
                 raise gr.Error(str(e)) from e
-            msg = f"{len(parts)} part{'s' if len(parts) != 1 else ''} ready."
+            from .cut import EXACT_TRIM_MAX, lengths, parse_time
+
+            msg = f"{len(parts)} part{'s' if len(parts) != 1 else ''} ready ({lengths(parts)})."
+            start, end = parse_time(a), parse_time(b)
+            split = minutes and (not end or end - (start or 0) > minutes * 60 + 1)
+            if start and (split or not end or end - start > EXACT_TRIM_MAX):
+                msg += " Long cuts are copied without re-encoding, so they can start a few seconds early."
             if as_projects and src == "original":
                 names = [project_from_upload(str(p)).dir.name for p in parts]
                 msg += f" Opened as projects: {', '.join(names)}. Pick one in Upload, or use Batch."
@@ -1643,12 +1651,30 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             None, None, None, js=scroll_js)
 
         # ---- simple API for scripts: one call, video in -> Khmer video + subtitles out
-        def api_dub(video, translator_name="google", key="", voice="auto", blur_mode="chinese", subs="burn"):
+        def api_dub(video, translator_name="google", key="", voice="auto", blur_mode="chinese", subs="burn",
+                    model_name="", provider_name="", base_url_value=""):
+            from .translate import ENGINES, PROVIDERS
+
+            allowed = {"translator": (translator_name, list(ENGINES)), "voice": (voice, ["auto", "sreymom", "piseth"]),
+                       "blur": (blur_mode, ["chinese", "all", "off"]), "subtitles": (subs, ["burn", "soft", "none"]),
+                       "provider": (provider_name or "openrouter", list(PROVIDERS))}
+            for name, (value, options) in allowed.items():
+                if value not in options:  # check first, so a typo is never saved into the project
+                    raise gr.Error(f"Unknown {name} {value!r}. Use one of: {', '.join(options)}.")
+            if not video:
+                raise gr.Error("Send a video file.")
             proj = project_from_upload(video)
             s = proj.load_settings()
             s.translator, s.voice_mode, s.blur, s.subtitles = translator_name, voice, blur_mode, subs
+            if translator_name != "google" and (model_name or provider_name or base_url_value):
+                s.translator_model = model_name or s.translator_model
+                s.translator_provider = provider_name or s.translator_provider
+                s.translator_base_url = base_url_value or s.translator_base_url
             proj.save_settings(s)
-            out = Pipeline(proj, s, key or None, log=lambda m: None).run_all()
+            try:
+                out = Pipeline(proj, s, key or None, log=lambda m: None).run_all()
+            except Exception as e:  # give the caller the real reason, not Gradio's generic message
+                raise gr.Error(_friendly(e)) from e
             srt = proj.path(f"{proj.video.stem}_khmer.srt")
             return str(out), str(srt) if srt.exists() else None
 
@@ -1656,10 +1682,11 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             a_video = gr.File(type="filepath")
             a_tr, a_key, a_voice = gr.Textbox("google"), gr.Textbox(""), gr.Textbox("auto")
             a_blur, a_subs = gr.Textbox("chinese"), gr.Textbox("burn")
+            a_model, a_provider, a_base = gr.Textbox(""), gr.Textbox(""), gr.Textbox("")
             a_out_v, a_out_s = gr.File(), gr.File()
             a_btn = gr.Button()
-        a_btn.click(api_dub, [a_video, a_tr, a_key, a_voice, a_blur, a_subs], [a_out_v, a_out_s],
-                    api_name="dub_video")
+        a_btn.click(api_dub, [a_video, a_tr, a_key, a_voice, a_blur, a_subs, a_model, a_provider, a_base],
+                    [a_out_v, a_out_s], api_name="dub_video", **HEAVY)
 
     return app
 
@@ -1711,6 +1738,9 @@ from gradio_client import Client, handle_file
 client = Client("http://localhost:7860/")
 video, srt = client.predict(handle_file("episode01.mp4"), "google", "", "auto", "chinese", "burn",
                             api_name="/dub_video")
+# translator: google | gemini | custom | claude | openai | nllb   (then the API key)
+# voice: auto | sreymom | piseth    blur: chinese | all | off    subtitles: burn | soft | none
+# optional after those: model, provider (openrouter | groq | deepseek | ollama | other), base URL
 ```
 
 Command line: `uv run --extra cpu khmerdub run video.mp4 --help` and `khmerdub cut video.mp4 --every 15`.

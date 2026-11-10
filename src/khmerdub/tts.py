@@ -19,6 +19,7 @@ import asyncio
 import hashlib
 import json
 import math
+import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -63,16 +64,20 @@ async def _synth_one(sem, text: str, voice: str, rate: int, pitch: int, out: Pat
     if out.exists() and out.stat().st_size > 0:
         return
     async with sem:
-        for attempt in range(5):
+        tries = 8  # the free voice service sometimes refuses for a minute when busy: wait it out (~2 min)
+        for attempt in range(tries):
             try:
                 tmp = out.with_suffix(".tmp")
                 await edge_tts.Communicate(text, VOICES[voice], rate=f"{rate:+d}%", pitch=f"{pitch:+d}Hz").save(str(tmp))
                 tmp.replace(out)
                 return
-            except Exception:
-                if attempt == 4:
-                    raise
-                await asyncio.sleep(2 * (attempt + 1))
+            except Exception as e:
+                if attempt == tries - 1:
+                    raise RuntimeError(
+                        "The Khmer voice service (Microsoft) did not answer, even after waiting. It is probably busy "
+                        "or the internet dropped. Wait a few minutes and press the button again: lines already "
+                        f"made are kept. ({type(e).__name__})") from e
+                await asyncio.sleep(min(30.0, 2.0 ** attempt) + random.random())
 
 
 def _synth_many(jobs: list[tuple[str, str, int, int, Path]], progress, label: str) -> None:

@@ -100,6 +100,10 @@ class Pipeline:
             self.p.path("bounds_refined.txt").unlink(missing_ok=True)
         elif not self.p.has_segments() or new_zh:
             segs = self.transcribe(self.stage(0.45, 0.8), zh_srt)
+            if not segs:
+                raise RuntimeError(
+                    "No Chinese speech was found in this video, so there is nothing to dub. If it does have speech, "
+                    "set Speech recognition to large-v3 in Settings (More options), or add a Chinese .srt file.")
             self.p.save_segments(segs)
             self.p.path("voices_mode.txt").unlink(missing_ok=True)
             self.p.path("bounds_refined.txt").unlink(missing_ok=True)
@@ -308,10 +312,10 @@ class Pipeline:
         """A short clip of one line in context: picture, music, the Khmer voices and the subtitle."""
         import numpy as np
 
-        from .tts import TTS_SR, plan
         from .media import save_wav
         from .render import FONTS_DIR
         from .subtitles import write_ass
+        from .tts import TTS_SR, plan
 
         self.refine_bounds()
         segs = sorted((s for s in self.p.load_segments() if s.km.strip()), key=lambda s: s.start + s.offset)

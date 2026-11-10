@@ -23,7 +23,7 @@ where nvidia-smi >nul 2>nul
 if not errorlevel 1 set EXTRA=gpu
 
 REM install a downloaded update (if any) before the app opens
-uv run --extra %EXTRA% khmerdub update --apply
+uv run --extra %EXTRA% --extra offline khmerdub update --apply
 if exist "%~dp0start-windows.bat.new" (
     move /y "%~dp0start-windows.bat.new" "%~dp0start-windows.bat" >nul
     "%~dp0start-windows.bat"
@@ -34,5 +34,5 @@ echo.
 echo Starting Khmer Dub (%EXTRA% mode). It opens in its own window when ready.
 echo Keep this black window open while you use the app.
 echo.
-uv run --extra %EXTRA% khmerdub app
+uv run --extra %EXTRA% --extra offline khmerdub app
 if errorlevel 1 pause
