@@ -7,6 +7,7 @@ every 30 s), within a few seconds for other videos.
 
 from __future__ import annotations
 
+import glob
 import re
 from pathlib import Path
 
@@ -53,13 +54,13 @@ def cut(video: Path, out_dir: Path, every_minutes: float | None = None,
     rng = (["-ss", f"{a:.3f}"] if a else []) + ["-i", str(video)] + (["-t", f"{b - a:.3f}"] if b else [])
     common = ["-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero"]
 
-    for old in out_dir.glob(f"{stem}_part*{ext}"):
+    for old in out_dir.glob(f"{glob.escape(stem)}_part*{ext}"):
         old.unlink()
     if every_minutes and every_minutes > 0 and (not b or (b - a) > every_minutes * 60 + 1):
-        pattern = out_dir / f"{stem}_part%02d{ext}"
+        pattern = out_dir / f"{stem.replace('%', '%%')}_part%02d{ext}"
         run_ffmpeg([*rng, *common, "-f", "segment", "-segment_time", f"{every_minutes * 60:.3f}",
                     "-reset_timestamps", "1", "-segment_start_number", "1", str(pattern)])
-        parts = sorted(out_dir.glob(f"{stem}_part*{ext}"))
+        parts = sorted(out_dir.glob(f"{glob.escape(stem)}_part*{ext}"))
     else:
         label = f"{fmt(a)}-{fmt(b)}".replace(":", ".") if b else fmt(a).replace(":", ".")
         out = out_dir / f"{stem}_{label}{ext}"

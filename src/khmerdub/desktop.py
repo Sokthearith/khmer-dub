@@ -84,6 +84,8 @@ def _chromium_window(url: str, width: int, height: int, log: Callable[[str], Non
         started = time.time()
         proc.wait()
         if time.time() - started < 4:
+            if proc.returncode:  # this browser could not open the window (crashed, bad profile): try the next way
+                continue
             # the browser handed the window to an already running copy: we can't see it close
             log("Khmer Dub is open in its window. Close this black window to stop the app.")
             return "handed-off"

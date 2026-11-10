@@ -64,14 +64,43 @@ def _iou(a, b) -> float:
     return inter / ua if ua > 0 else 0.0
 
 
-def _travels(keys) -> bool:
-    """True if the text really moves (its covered area is much bigger than the text itself)."""
+def _travels(keys, width: float = 0.0) -> bool:
+    """True if the text really moves: its covered area is much bigger than the text itself, or it is
+    scrolling in/out at the left or right edge of the frame (it grows or shrinks there instead of moving)."""
     if len(keys) < 2:
         return False
     k = np.asarray(keys)
     union = (k[:, 3].max() - k[:, 1].min()) * (k[:, 4].max() - k[:, 2].min())
     typical = np.median((k[:, 3] - k[:, 1]) * (k[:, 4] - k[:, 2]))
-    return union > 3.0 * max(typical, 1.0)
+    if union > 3.0 * max(typical, 1.0):
+        return True
+    if width:
+        h = float(np.median(k[:, 4] - k[:, 2]))
+        at_right, at_left = (k[:, 3] >= width - 6).any(), (k[:, 1] <= 6).any()
+        if (at_right and np.ptp(k[:, 1]) > 2 * h) or (at_left and np.ptp(k[:, 3]) > 2 * h):
+            return True
+    return False
+
+
+def _follow_out(k: np.ndarray, width: float, scan_end: float, alive_at_end: bool) -> list[float] | None:
+    """Keep a moving text's blur going after its last detection, along its motion, until it has left the
+    frame (text sliding off an edge is hard to detect when only a sliver is left) or the video ends."""
+    a, b = k[-min(4, len(k))], k[-1]
+    d = b[0] - a[0]
+    if d <= 0:
+        return None
+    v = (b[1:] - a[1:]) / d  # per-corner speed in px/s
+    t_end = None
+    if alive_at_end:
+        t_end = scan_end
+    elif b[1] <= 6 and v[2] < -1:  # leaving at the left edge: until its right side has gone
+        t_end = b[0] + b[3] / -v[2]
+    elif b[3] >= width - 6 and v[0] > 1:  # leaving at the right edge: until its left side has gone
+        t_end = b[0] + (width - b[1]) / v[0]
+    if t_end is None or t_end <= b[0] + 0.05:
+        return None
+    t_end = min(t_end, b[0] + 3.0)
+    return [t_end, *(b[1:] + v * (t_end - b[0]))]
 
 
 def _match_score(box, tr: _Track, t: float) -> float:
@@ -214,7 +243,7 @@ def detect(
             # still text (watermarks, semi-transparent logos) often drops out of detection
             # for a moment: remember it for a few seconds so the blur doesn't flicker
             n = len(tr.keys)
-            still = n >= 3 and not _travels(tr.keys)
+            still = n >= 3 and not _travels(tr.keys, W)
             # a logo seen for 10+ s is surely still there: remember it longer (10 s), short text 4 s
             keep = (10.0 if n * dt >= 10 else 4.0) if still else 2.5 * dt
             (alive if t - tr.last[0] <= keep else done).append(tr)
@@ -231,9 +260,8 @@ def detect(
         if mode == "chinese" and not tr.chinese:
             continue
         k = np.array(tr.keys)
-        span = k[-1, 0] - k[0, 0]
         h = np.median(k[:, 4] - k[:, 2])
-        moving = _travels(tr.keys)
+        moving = _travels(tr.keys, W)
         if len(k) == 1 and mode == "all" and h < 12:
             continue
         if not moving:
@@ -246,6 +274,9 @@ def detect(
         else:
             keys = k.tolist()
             ext = dt
+            tail = _follow_out(k, W, scan_end, id(tr) in alive_at_end)
+            if tail:
+                keys.append(tail)
         out.append({"keys": [[round(v, 2) for v in key] for key in keys],
                     "static": not moving, "text": tr.text, "dt": ext})
     out = _merge_still(out)

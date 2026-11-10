@@ -617,6 +617,14 @@ def _friendly(err: Exception) -> str:
     return msg[:600]
 
 
+def _bound(bound, proj_dir_value: str, idx) -> bool:
+    """Is the editor showing exactly this project's line?"""
+    try:
+        return bool(bound) and bound == f"{proj_dir_value}|{int(idx)}"
+    except (TypeError, ValueError):
+        return False
+
+
 def _box_rows(box_list) -> list[list]:
     return [[round(b["x"] * 100, 1), round(b["y"] * 100, 1), round(b["w"] * 100, 1), round(b["h"] * 100, 1),
              b.get("start", "start"), b.get("end", "end")] for b in box_list or []]
@@ -642,6 +650,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         boxes = gr.State([])  # manual blur boxes (fractions of the frame)
         pending_pt = gr.State(None)  # first click of a new blur box
         line_idx = gr.State(0)  # line shown in the editor
+        editor_for = gr.State(None)  # "<project folder>|<line>" the editor is showing; edits go only there
 
         head = gr.HTML(header_html(None), elem_id="kd-head")
 
@@ -914,6 +923,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                         gr.Markdown(HELP_MD)
 
         # =================================================== event handlers ====
+        # long jobs (voice removal, voices, scans, rendering) run one at a time, never two on the same files
+        HEAVY = {"concurrency_id": "heavy", "concurrency_limit": 1}
+
         comp = dict(zip(SETTING_FIELDS, [
             translator, provider, base_url, model, whisper_model, voice_mode, voice_speed, voice_pitch, remove_voice,
             max_speedup, fit_mode, background_volume, dub_volume, subtitles, subtitle_size, subtitle_position, subtitle_color,
@@ -991,10 +1003,26 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             out.update({c: getattr(s, name) for name, c in comp.items()})
             out.update(_translator_visibility(s.translator, s.translator_provider))
             out.update(rail_state("upload", proj))
+            out.update(blank_editor())
             return out
 
+        def blank_editor() -> dict:
+            return {line_idx: 0, editor_for: None, line_title: "Pick a line on the left.", zh_text: "", km_text: "",
+                    line_speed: "auto", line_audio: gr.Audio(value=None, visible=False),
+                    line_video: gr.Video(value=None, visible=False), next_prev: ""}
+
+        editor_comps = [line_idx, editor_for, line_title, zh_text, km_text, line_speed, line_audio, line_video,
+                        next_prev]
+
+        PICK_FIRST = "Pick a line in the table first."
+
+        def not_picked(nothing):
+            """No line picked (or it belongs to another project): say so, change nothing, no red error marks."""
+            gr.Warning(PICK_FIRST)
+            return nothing
         load_out = list(dict.fromkeys([proj_dir, head, facts, thumb, table, weft, sync_info, boxes, box_table, blur_t, folder,
-                                       existing, result, downloads, *setting_comps, *vis_out, *rail_list]))
+                                       existing, result, downloads, *setting_comps, *vis_out, *rail_list,
+                                       *editor_comps]))
 
         # an empty dict is not "no change" in Gradio (it counts as one value), so return one untouched output
         upload.upload(lambda p: load_into_ui(project_from_upload(p)) if p else {head: gr.update()}, [upload],
@@ -1033,11 +1061,20 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             if err:
                 yield {head: header_html(proj), prep_msg: f"**{_friendly(err)}**", log_box: text}
                 raise gr.Error(_friendly(err))
-            yield {head: header_html(proj), table: table_value(proj), weft: weft_html(proj), log_box: text,
+            out = {head: header_html(proj), table: table_value(proj), weft: weft_html(proj), log_box: text,
                    prep_msg: "Done. Check the lines in Review.", **go("review", str(proj.dir))}
+            out.update(refresh_editor(d, proj))
+            yield out
 
-        prep_in = {proj_dir, api_key, zh_srt, km_srt, boxes, *setting_comps}
-        prep_out = [head, table, weft, log_box, prep_msg, tabs, *rail_list]
+        def refresh_editor(d, proj: Project) -> dict:
+            """After a bulk change, show the line being edited again with its new text (or blank the editor)."""
+            if _bound(d.get(editor_for), str(proj.dir), d.get(line_idx)) and proj.has_segments():
+                return show_line(str(proj.dir), int(d[line_idx]), bool(d.get(only_fix)))
+            return blank_editor()
+
+        prep_in = {proj_dir, api_key, zh_srt, km_srt, boxes, line_idx, editor_for, only_fix, *setting_comps}
+        prep_out = list(dict.fromkeys([head, table, weft, log_box, prep_msg, tabs, *rail_list, *editor_comps,
+                                       weft, next_prev, sync_info, line_voice]))
 
         def do_prepare(d, progress=gr.Progress()):
             yield from _prepare(d, progress)
@@ -1045,8 +1082,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         def do_retranslate(d, progress=gr.Progress()):
             yield from _prepare(d, progress, retrans=True)
 
-        start_prepare.click(do_prepare, prep_in, prep_out, show_progress_on=[prep_msg])
-        retranslate.click(do_retranslate, prep_in, prep_out, show_progress_on=[table])
+        start_prepare.click(do_prepare, prep_in, prep_out, show_progress_on=[prep_msg], **HEAVY)
+        retranslate.click(do_retranslate, prep_in, prep_out, show_progress_on=[table], **HEAVY)
 
         # ---- everything automatically
         def do_all(d, progress=gr.Progress()):
@@ -1071,11 +1108,11 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             gr.Info("The Khmer video is ready.")
             yield {head: header_html(proj), log_box: text, table: table_value(proj), weft: weft_html(proj),
                    result: str(res), downloads: [str(p) for p in Pipeline(proj, s, log=lambda m: None).downloads()],
-                   **rail_state("export", proj)}
+                   **rail_state("export", proj), **blank_editor()}
 
-        auto_out = [head, log_box, tabs, table, weft, result, downloads, *rail_list]
-        auto_all_1.click(do_all, prep_in, auto_out, show_progress_on=[result])
-        auto_all_2.click(do_all, prep_in, auto_out, show_progress_on=[result])
+        auto_out = list(dict.fromkeys([head, log_box, tabs, table, weft, result, downloads, *rail_list, *editor_comps]))
+        auto_all_1.click(do_all, prep_in, auto_out, show_progress_on=[result], **HEAVY)
+        auto_all_2.click(do_all, prep_in, auto_out, show_progress_on=[result], **HEAVY)
 
         # ---- review: line editor
         def show_line(proj_v, idx, only: bool = False) -> dict:
@@ -1090,7 +1127,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             fit = f" · {fit_text(info)}" if info and info.get("status") != "none" else ""
             mark = " · checked" if sg.checked else ""
             nudge = f" · moved {sg.offset:+.1f} s" if abs(sg.offset) >= 0.05 else ""
-            return {line_idx: idx,
+            return {line_idx: idx, editor_for: f"{proj.dir}|{idx}",
                     line_title: f"Line {idx + 1} of {len(segs)} · {fmt_t(sg.start)} → {fmt_t(sg.end)}{nudge}{fit}{mark}",
                     zh_text: sg.zh, km_text: sg.km, line_voice: sg.voice,
                     line_speed: "auto" if sg.rate is None else str(sg.rate),
@@ -1098,8 +1135,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                     weft: weft_html(proj, idx, rep), next_prev: next_html(proj, idx),
                     table: table_value(proj, idx, only), sync_info: sync_html(proj, rep)}
 
-        line_out = [line_idx, line_title, zh_text, km_text, line_voice, line_speed, line_audio, line_video, weft,
-                    next_prev, table, sync_info]
+        line_out = [line_idx, editor_for, line_title, zh_text, km_text, line_voice, line_speed, line_audio, line_video,
+                    weft, next_prev, table, sync_info]
 
         def on_table_select(proj_v, only, evt: gr.SelectData):
             try:
@@ -1136,8 +1173,10 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
           setTimeout(step, 100);
         }"""
 
-        def _store(proj_v, idx, km, voice, checked: bool) -> Project:
+        def _store(proj_v, idx, km, voice, checked: bool, bound=None) -> Project:
             proj = project_from_dir(proj_v)
+            if not _bound(bound, str(proj.dir), idx):  # callers check first; this is the last guard
+                raise gr.Error(PICK_FIRST)
             segs = proj.load_segments() if proj.has_segments() else []
             if segs:
                 sg = segs[max(0, min(int(idx), len(segs) - 1))]
@@ -1148,15 +1187,19 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 proj.path("voices_mode.txt").write_text(proj.load_settings().voice_mode)
             return proj
 
-        def do_save(proj_v, idx, km, voice, only):
-            proj = _store(proj_v, idx, km, voice, True)
+        def do_save(proj_v, idx, km, voice, only, bound):
+            if not _bound(bound, str(project_from_dir(proj_v).dir), idx):
+                return not_picked({line_title: gr.update()})
+            proj = _store(proj_v, idx, km, voice, True, bound)
             gr.Info("Saved")
             out = show_line(proj_v, idx, only)
             out.update({head: header_html(proj), **rail_state("review", proj)})
             return out
 
-        def do_step(proj_v, idx, km, voice, only, delta, save):
-            proj = _store(proj_v, idx, km, voice, True) if save else project_from_dir(proj_v)
+        def do_step(proj_v, idx, km, voice, only, bound, delta, save):
+            if not _bound(bound, str(project_from_dir(proj_v).dir), idx):
+                return not_picked({line_title: gr.update()})
+            proj = _store(proj_v, idx, km, voice, True, bound) if save else project_from_dir(proj_v)
             idx, nxt = int(idx), int(idx) + delta
             if only:  # jump to the next line that still needs a look
                 fits = _report(proj)["lines"]
@@ -1167,7 +1210,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             out.update({head: header_html(proj), **rail_state("review", proj)})
             return out
 
-        edit_in = [proj_dir, line_idx, km_text, line_voice, only_fix]
+        edit_in = [proj_dir, line_idx, km_text, line_voice, only_fix, editor_for]
         edit_out = [*line_out, head, *rail_list]
         for ev in (save_line.click(do_save, edit_in, edit_out),
                    next_line.click(lambda *a: do_step(*a, 1, True), edit_in, edit_out),
@@ -1178,8 +1221,10 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                         [proj_dir, line_idx, only_fix], [table])
 
         # ---- timing tools for one line
-        def _edit_timing(proj_v, idx, km, voice, only, delta=None, speed=None):
-            proj = _store(proj_v, idx, km, voice, False)
+        def _edit_timing(proj_v, idx, km, voice, only, bound, delta=None, speed=None):
+            if not _bound(bound, str(project_from_dir(proj_v).dir), idx):
+                return not_picked({line_title: gr.update()})
+            proj = _store(proj_v, idx, km, voice, False, bound)
             segs = proj.load_segments()
             sg = segs[int(idx)]
             if delta is not None:
@@ -1191,13 +1236,15 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         nudge_early.click(lambda *a: _edit_timing(*a, delta=-0.1), edit_in, line_out)
         nudge_late.click(lambda *a: _edit_timing(*a, delta=0.1), edit_in, line_out)
-        line_speed.input(lambda p, i, k, v, o, sp: _edit_timing(p, i, k, v, o, speed=sp),
+        line_speed.input(lambda p, i, k, v, o, b, sp: _edit_timing(p, i, k, v, o, b, speed=sp),
                          [*edit_in, line_speed], line_out)
 
         def do_shorten(d, progress=gr.Progress()):
             from .translate import shorten
 
             proj = project_from_dir(d[proj_dir])
+            if not _bound(d.get(editor_for), str(proj.dir), d[line_idx]):
+                return not_picked(gr.update())
             sg = proj.load_segments()[int(d[line_idx])]
             progress(0.3, desc="Asking the AI for a shorter line")
             try:
@@ -1208,11 +1255,14 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             gr.Info("Shorter line ready. Listen to it, then Save.")
             return new
 
-        shorten_btn.click(do_shorten, {proj_dir, line_idx, km_text, translator, model, api_key, provider, base_url},
+        shorten_btn.click(do_shorten, {proj_dir, line_idx, editor_for, km_text, translator, model, api_key, provider,
+                                       base_url},
                           [km_text], show_progress_on=[km_text])
 
-        def do_play_zh(proj_v, idx):
+        def do_play_zh(proj_v, idx, bound):
             proj = project_from_dir(proj_v)
+            if not _bound(bound, str(proj.dir), idx):
+                return not_picked(gr.update())
             segs = proj.load_segments()
             return gr.Audio(value=str(Pipeline(proj, log=lambda m: None).line_original_audio(segs[int(idx)])),
                             visible=True)
@@ -1232,14 +1282,16 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             except Exception as e:
                 raise gr.Error(_friendly(e)) from e
 
-        play_zh.click(do_play_zh, [proj_dir, line_idx], [line_audio])
+        play_zh.click(do_play_zh, [proj_dir, line_idx, editor_for], [line_audio])
         play_km.click(do_play_km, [proj_dir, line_idx, km_text, line_voice], [line_audio],
                       show_progress_on=[line_audio])
 
-        def do_play_video(proj_v, idx, km, voice, progress=gr.Progress()):
+        def do_play_video(proj_v, idx, km, voice, bound, progress=gr.Progress()):
+            if not _bound(bound, str(project_from_dir(proj_v).dir), idx):
+                return not_picked(gr.update())
             if not (km or "").strip():
                 raise gr.Error("This line has no Khmer text yet.")
-            proj = _store(proj_v, idx, km, voice, False)
+            proj = _store(proj_v, idx, km, voice, False, bound)
             progress(0.3, desc="Making a short clip of this line")
             try:
                 out = Pipeline(proj, log=lambda m: None).line_preview(int(idx))
@@ -1247,7 +1299,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 raise gr.Error(_friendly(e)) from e
             return gr.Video(value=str(out), visible=True)
 
-        play_vid.click(do_play_video, [proj_dir, line_idx, km_text, line_voice], [line_video],
+        play_vid.click(do_play_video, [proj_dir, line_idx, km_text, line_voice, editor_for], [line_video],
                        show_progress_on=[line_video])
 
         def do_make_voices(d, progress=gr.Progress()):
@@ -1266,15 +1318,18 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield {head: header_html(proj), log_box: text}
                 raise gr.Error(_friendly(err))
             gr.Info("Voices made. Lines marked in red run over the character; fix them with the timing tools.")
-            out = show_line(d[proj_dir], int(d[line_idx] or 0), d[only_fix])
-            out.update({head: header_html(proj), log_box: text, **rail_state("review", proj)})
+            out = refresh_editor(d, proj)
+            out.update({head: header_html(proj), log_box: text, table: table_value(proj, int(d[line_idx] or 0),
+                                                                              d[only_fix]),
+                        weft: weft_html(proj, int(d[line_idx] or 0)), sync_info: sync_html(proj),
+                        **rail_state("review", proj)})
             yield out
 
-        make_voices_btn.click(do_make_voices, {proj_dir, line_idx, only_fix, boxes, *setting_comps},
-                              list(dict.fromkeys([*line_out, head, log_box, *rail_list])),
-                              show_progress_on=[sync_info])
+        make_voices_btn.click(do_make_voices, {proj_dir, line_idx, editor_for, only_fix, boxes, *setting_comps},
+                              list(dict.fromkeys([*line_out, *editor_comps, head, log_box, *rail_list])),
+                              show_progress_on=[sync_info], **HEAVY)
 
-        def do_replace(proj_v, find, repl, idx):
+        def do_replace(proj_v, find, repl, idx, bound, only):
             if not find:
                 raise gr.Error("Type the text to find.")
             proj = project_from_dir(proj_v)
@@ -1285,21 +1340,26 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                     sg.km, n = sg.km.replace(find, repl or ""), n + 1
             proj.save_segments(segs)
             gr.Info(f"Changed {n} lines")
-            return table_value(proj, idx)
+            return refresh_editor({editor_for: bound, line_idx: idx, only_fix: only}, proj) | {
+                table: table_value(proj, idx, only)}
 
-        replace_btn.click(do_replace, [proj_dir, find_txt, repl_txt, line_idx], [table])
+        replace_btn.click(do_replace, [proj_dir, find_txt, repl_txt, line_idx, editor_for, only_fix],
+                          list(dict.fromkeys([*line_out, *editor_comps])))
 
-        def do_all_voice(proj_v, idx, v):
+        def do_all_voice(proj_v, idx, bound, only, v):
             proj = project_from_dir(proj_v)
             segs = proj.load_segments()
             for sg in segs:
                 sg.voice = v
             proj.save_segments(segs)
             proj.path("voices_mode.txt").write_text(proj.load_settings().voice_mode)
-            return table_value(proj, idx), weft_html(proj, idx)
+            return refresh_editor({editor_for: bound, line_idx: idx, only_fix: only}, proj) | {
+                table: table_value(proj, idx, only), weft: weft_html(proj, idx)}
 
-        all_sreymom.click(lambda p, i: do_all_voice(p, i, "sreymom"), [proj_dir, line_idx], [table, weft])
-        all_piseth.click(lambda p, i: do_all_voice(p, i, "piseth"), [proj_dir, line_idx], [table, weft])
+        voice_in = [proj_dir, line_idx, editor_for, only_fix]
+        voice_out = list(dict.fromkeys([*line_out, *editor_comps]))
+        all_sreymom.click(lambda p, i, b, o: do_all_voice(p, i, b, o, "sreymom"), voice_in, voice_out)
+        all_piseth.click(lambda p, i, b, o: do_all_voice(p, i, b, o, "piseth"), voice_in, voice_out)
 
         # ---- blur page
         def draw_blur_frame(proj_v, t, box_list, pt, blur_mode, fps):
@@ -1397,7 +1457,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         scan_in = {proj_dir, blur_t, boxes, *setting_comps}
         scan_btn.click(do_scan, scan_in, [scan_msg, head, log_box, blur_img, *rail_list],
-                       show_progress_on=[blur_img])
+                       show_progress_on=[blur_img], **HEAVY)
 
         def do_preview(d, progress=gr.Progress()):
             proj = project_from_dir(d[proj_dir])
@@ -1413,7 +1473,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 raise gr.Error(_friendly(err))
             yield {preview_vid: str(res), log_box: text, scan_msg: ""}
 
-        preview_btn.click(do_preview, scan_in, [preview_vid, log_box, scan_msg], show_progress_on=[preview_vid])
+        preview_btn.click(do_preview, scan_in, [preview_vid, log_box, scan_msg], show_progress_on=[preview_vid], **HEAVY)
         to_export.click(lambda p: go("export", p), [proj_dir], [tabs, *rail_list], queue=False)
 
         # ---- export
@@ -1438,7 +1498,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                    folder: str(proj.dir), **rail_state("export", proj)}
 
         make_btn.click(do_make, {proj_dir, boxes, *setting_comps}, [head, log_box, result, downloads, folder,
-                                                                    *rail_list], show_progress_on=[result])
+                                                                    *rail_list], show_progress_on=[result], **HEAVY)
 
         # ---- cut
         cut_every.change(lambda v: gr.update(visible=v == -1.0), [cut_every], [cut_custom])
@@ -1499,7 +1559,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                    existing: gr.update(choices=list_projects())}
 
         batch_btn.click(do_batch, {batch_files, api_key, boxes, *setting_comps},
-                        [batch_table, batch_out, log_box, existing], show_progress_on=[batch_table])
+                        [batch_table, batch_out, log_box, existing], show_progress_on=[batch_table], **HEAVY)
 
         # ---- updates
         def update_banner(use_cache: bool = True) -> dict:

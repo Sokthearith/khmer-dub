@@ -67,6 +67,9 @@ def segment_pitch(audio16k: np.ndarray, start: float, end: float, max_frames: in
         frames = frames[np.linspace(0, frames.shape[0] - 1, max_frames).astype(int)]
     f0 = _yin_frames(frames)
     f0 = f0[f0 > 0]
+    if f0.size < 3:  # short or breathy line: accept a less certain pitch rather than none
+        f0 = _yin_frames(frames, thresh=0.3)
+        f0 = f0[f0 > 0]
     return float(np.median(f0)) if f0.size >= 3 else 0.0
 
 

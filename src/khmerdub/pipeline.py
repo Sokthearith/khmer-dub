@@ -89,12 +89,16 @@ class Pipeline:
         if self.s.remove_voice or self.s.voice_mode == "auto":
             self.separate(self.stage(0.0, 0.45))
 
-        if km_srt:  # user already has Khmer subtitles: dub those directly
+        # a subtitle file is imported once (or again when its content changes), so Start again keeps your edits
+        new_km = bool(km_srt) and (self._new_srt(km_srt) or not self.p.has_segments())
+        new_zh = bool(zh_srt) and not km_srt and self._new_srt(zh_srt)
+        if new_km:  # user already has Khmer subtitles: dub those directly
             self.log(f"Using Khmer subtitles from {Path(km_srt).name}")
             segs = [Segment(id=i, start=a, end=b, zh="", km=t) for i, (a, b, t) in enumerate(read_srt(km_srt))]
             self.p.save_segments(segs)
             self.p.path("voices_mode.txt").unlink(missing_ok=True)
-        elif not self.p.has_segments():
+            self.p.path("bounds_refined.txt").unlink(missing_ok=True)
+        elif not self.p.has_segments() or new_zh:
             segs = self.transcribe(self.stage(0.45, 0.8), zh_srt)
             self.p.save_segments(segs)
             self.p.path("voices_mode.txt").unlink(missing_ok=True)
@@ -130,6 +134,17 @@ class Pipeline:
         return segs
 
     # ------------------------------------------------------------ stage 2 --
+    def _new_srt(self, path) -> bool:
+        """True the first time a given subtitle file is used, so pressing Start again keeps your edits."""
+        import hashlib
+
+        digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()
+        marker = self.p.path("imported_srt.txt")
+        if marker.exists() and marker.read_text().strip() == digest:
+            return False
+        marker.write_text(digest)
+        return True
+
     def refine_bounds(self) -> None:
         """Once per transcript: snap each line to when the character's voice really starts and stops."""
         marker = self.p.path("bounds_refined.txt")
@@ -147,12 +162,16 @@ class Pipeline:
         from .mix import mix
         from .tts import build_dub
 
+        if self.s.remove_voice and not self.music_wav.exists():  # voice removal switched on after Start
+            self.extract_audio()
+            self.separate(progress)
         self.refine_bounds()
         segs = self.p.load_segments()
         total = video_info(self.p.video).duration or _wav_seconds(self.original_wav)
         self.log("Generating Khmer voices (Sreymom / Piseth)")
         build_dub(segs, self.p.path("tts"), total, self.p.path("dub.wav"), self.p.path("timing.json"),
-                  self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch), self.s.fit_mode)
+                  self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch), self.s.fit_mode,
+                  meta=self._voice_settings())
         voice_removed = self.s.remove_voice and self.music_wav.exists()
         bed = self.music_wav if voice_removed else self.original_wav
         self.log("Mixing Khmer voice with " + ("music/effects (Chinese voice removed)" if voice_removed
@@ -266,18 +285,24 @@ class Pipeline:
         segs = self.p.load_segments() if self.p.has_segments() else []
         lines, counts = {}, {"ok": 0, "fast": 0, "late": 0, "long": 0, "short": 0, "changed": 0, "none": 0}
         base = int(self.s.voice_speed)
+        # the overall speed / pitch / timing settings changed since the voices were made: every line is stale
+        same = timing.get("_settings", self._voice_settings()) == self._voice_settings()
         for s in segs:
             info = timing.get(str(s.id))
             if not s.km.strip() or not info:
                 st = "none"
-            elif info.get("key") != line_key(s):
+            elif not same or info.get("key") != line_key(s):
                 st = "changed"
             else:
                 st = info.get("status", "ok")
             counts[st] += 1
             factor = round((1 + (info or {}).get("rate", base) / 100) / (1 + base / 100), 2)
             lines[s.id] = {**(info or {}), "status": st, "factor": factor}
-        return {"made": bool(timing), "lines": lines, "counts": counts}
+        return {"made": any(k != "_settings" for k in timing), "lines": lines, "counts": counts}
+
+    def _voice_settings(self) -> dict:
+        return {"speed": int(self.s.voice_speed), "pitch": int(self.s.voice_pitch), "mode": self.s.fit_mode,
+                "max_speedup": float(self.s.max_speedup)}
 
     def line_preview(self, idx: int, seconds_before: float = 1.0, seconds_after: float = 1.5) -> Path:
         """A short clip of one line in context: picture, music, the Khmer voices and the subtitle."""

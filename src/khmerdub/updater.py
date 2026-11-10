@@ -176,8 +176,31 @@ def _replace_file(src: Path, target: Path) -> None:
     os.replace(tmp, target)  # new file, so a shell still reading the old script is not disturbed
 
 
+def _rename(src: Path, dst: Path, tries: int = 6) -> None:
+    """Rename, retrying a few times (Windows antivirus often holds freshly copied files for a moment)."""
+    for i in range(tries):
+        try:
+            src.rename(dst)
+            return
+        except OSError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.5 * (i + 1))
+
+
+def recover(dst: Path | None = None) -> None:
+    """If an earlier update was interrupted, put any 'X.old' folder back where 'X' is missing."""
+    dst = dst or root()
+    for old in dst.glob("*.old"):
+        target = dst / old.name[: -len(".old")]
+        if old.is_dir() and not target.exists():
+            _rename(old, target)
+
+
 def apply_pending(log: Callable[[str], None] = print) -> str | None:
     """Install a downloaded update. Returns the new version, or None when there was nothing to do."""
+    if not is_git_checkout():
+        recover()
     p = pending()
     if not p:
         return None
@@ -198,21 +221,27 @@ def apply_pending(log: Callable[[str], None] = print) -> str | None:
         return None
 
     dst = root()
-    for item in sorted(staged.iterdir()):
-        if item.name in KEEP:
-            continue
+    recover(dst)
+    items = [i for i in staged.iterdir() if i.name not in KEEP]
+    # folders first: if one can't be swapped we stop before any loose file (pyproject.toml...) changed
+    for item in sorted((i for i in items if i.is_dir()), key=lambda i: i.name):
         target = dst / item.name
-        if item.is_dir():
-            fresh, old = dst / (item.name + ".updating"), dst / (item.name + ".old")
-            shutil.rmtree(fresh, ignore_errors=True)
-            shutil.rmtree(old, ignore_errors=True)
-            shutil.copytree(item, fresh)
-            if target.exists():
-                target.rename(old)
-            fresh.rename(target)
-            shutil.rmtree(old, ignore_errors=True)
-        else:
-            _replace_file(item, target)
+        fresh, old = dst / (item.name + ".updating"), dst / (item.name + ".old")
+        shutil.rmtree(fresh, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+        shutil.copytree(item, fresh)
+        if target.exists():
+            _rename(target, old)
+        try:
+            _rename(fresh, target)
+        except OSError:
+            if old.exists() and not target.exists():
+                _rename(old, target)  # put the old version back so the app still starts
+            log("The update could not be installed (a file is in use). It will be tried again next start.")
+            raise
+        shutil.rmtree(old, ignore_errors=True)
+    for item in sorted((i for i in items if i.is_file()), key=lambda i: i.name):
+        _replace_file(item, dst / item.name)
     (d / "updated.txt").write_text(p["version"], encoding="utf-8")
     (d / "latest.json").unlink(missing_ok=True)
     clear()

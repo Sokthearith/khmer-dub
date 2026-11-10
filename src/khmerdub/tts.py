@@ -200,6 +200,7 @@ def build_dub(
     speed: int = 0,
     pitch: int = 0,
     mode: str = "match",
+    meta: dict | None = None,
 ) -> dict[int, Placed]:
     lines = sorted((s for s in segs if _clean_text(s.km)), key=lambda s: s.start + s.offset)
     clips, placed = plan(lines, tts_dir, total_seconds, speed, pitch, max_speedup, mode, progress)
@@ -220,6 +221,8 @@ def build_dub(
     if peak > 0.98:
         track *= 0.98 / peak
     save_wav(dub_wav, track[: int(total_seconds * TTS_SR) or n], TTS_SR)
+    if meta:
+        timing["_settings"] = meta  # lets the review page tell when the overall voice settings changed
     timing_json.write_text(json.dumps(timing), encoding="utf-8")
     if progress:
         progress(1.0, "Khmer voice done")

@@ -57,8 +57,9 @@ def render(
         write_ass(sub_lines, workdir / "render.ass", info.width, info.height, subtitle_size, offset=start,
                   **(sub_style or {}))
         vf.append("ass=render.ass:fontsdir=fonts")  # relative paths: avoids Windows path escaping
-    if resolution not in ("", "original") and info.height > int(resolution):
-        vf.append(f"scale=-2:{int(resolution)}")
+    if resolution not in ("", "original") and min(info.width, info.height) > int(resolution):
+        r = int(resolution)  # 1080p/720p/480p is the short side, so vertical videos keep their shape
+        vf.append(f"scale=-2:{r}" if info.width >= info.height else f"scale={r}:-2")
     vf.append("format=yuv420p")
 
     use_frames = bool(timeline)
@@ -117,7 +118,7 @@ def render(
             elif progress:
                 progress(0.5, "Making video…")
             proc.wait()
-        except BrokenPipeError:
+        except (BrokenPipeError, OSError):  # ffmpeg stopped early (on Windows: OSError); its log is shown below
             proc.wait()
         finally:
             if cap is not None:
