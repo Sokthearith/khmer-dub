@@ -32,16 +32,16 @@ ENGINES = {
 DEFAULT_MODELS = {
     "claude": "claude-opus-5-5",
     "openai": "gpt-5-mini",
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.6-flash",  # if Google retires it, the newest Flash the key can use is picked
     "nllb": "facebook/nllb-200-distilled-600M",
 }
 KEY_ENV = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY"}
 
 # OpenAI-compatible services for the "custom" engine: name -> (base URL, key env var, suggested model, note)
 PROVIDERS = {
-    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "deepseek/deepseek-chat-v3-0324:free",
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "google/gemma-4-31b-it:free",
                    "Free key at openrouter.ai; models ending in ':free' cost nothing"),
-    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "llama-3.3-70b-versatile",
+    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai/gpt-oss-120b",
              "Free key at console.groq.com; very fast"),
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat",
                  "Key at platform.deepseek.com; very cheap, strong at Chinese"),
@@ -104,23 +104,84 @@ def _retry(fn, tries: int = 4, what: str = "request"):
 
 
 # ---------------------------------------------------------------- Google -----
+# Two free Google Translate addresses with separate limits. The first takes many lines in one request and
+# returns exactly one translation per line; the second (the classic one) is the backup.
+GOOGLE_LINES_URL = "https://clients5.google.com/translate_a/t"
 GOOGLE_URL = "https://translate.googleapis.com/translate_a/single"
+GOOGLE_WAITS = (15, 30, 60, 90)  # seconds to wait when Google says "too many requests" (about 3 minutes)
+GOOGLE_BUSY = ("Google Translate is refusing requests from this computer for now (too many requests). Wait 10–30 "
+               "minutes and press Start again: lines already translated are kept. Or choose Gemini (free key).")
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
+class GoogleBusy(Exception):
+    pass
+
+
+def _check(r) -> None:
+    if r.status_code in (429, 503):  # 503 is Google's "unusual traffic" page
+        raise GoogleBusy(r.headers.get("Retry-After") or "")
+    r.raise_for_status()
+
+
+def _google_lines(lines: list[str]) -> list[str]:
+    import requests
+
+    r = requests.post(GOOGLE_LINES_URL, params={"client": "dict-chrome-ex", "sl": "zh-CN", "tl": "km"},
+                      data=[("q", x) for x in lines], headers=_HEADERS, timeout=30)
+    _check(r)
+    out = r.json()
+    out = [x if isinstance(x, str) else (x[0] if x else "") for x in (out if isinstance(out, list) else [out])]
+    if len(out) != len(lines):
+        raise ValueError("Google returned a different number of lines")
+    return [x.strip() for x in out]
 
 
 def _google_text(text: str) -> str:
     import requests
 
     r = requests.post(GOOGLE_URL, params={"client": "gtx", "sl": "zh-CN", "tl": "km", "dt": "t"},
-                      data={"q": text}, timeout=30)
-    r.raise_for_status()
+                      data={"q": text}, headers=_HEADERS, timeout=30)
+    _check(r)
     return "".join(p[0] for p in r.json()[0] if p and p[0])
+
+
+def _google_classic(lines: list[str]) -> list[str]:
+    out = [x.strip() for x in _google_text("\n".join(lines)).split("\n")]
+    if len(out) == len(lines):
+        return out
+    result = []  # the line count changed: one request per line
+    for x in lines:
+        result.append(_google_text(x).strip())
+        time.sleep(0.2)
+    return result
+
+
+def _google_batch(lines: list[str], wait: Callable[[float, str], None]) -> list[str]:
+    """Translate lines with whichever free Google address answers; wait it out when both are busy."""
+    for attempt in range(len(GOOGLE_WAITS) + 1):
+        busy, retry_after, error = False, 0, None
+        for fn in (_google_lines, _google_classic):
+            try:
+                return fn(lines)
+            except GoogleBusy as e:
+                busy, retry_after = True, max(retry_after, int(str(e)) if str(e).isdigit() else 0)
+            except Exception as e:  # network hiccup or an unexpected reply: try the other address
+                error = e
+        if attempt < len(GOOGLE_WAITS):
+            wait(max(GOOGLE_WAITS[attempt], min(retry_after, 300)),
+                 "Google Translate is busy" if busy else "Google Translate did not answer")
+    if busy:
+        raise RuntimeError(GOOGLE_BUSY)
+    raise RuntimeError(f"Google Translate did not answer ({type(error).__name__}). Check the internet connection "
+                       "and press Start again: lines already translated are kept.") from error
 
 
 def _google(segs: list[Segment], progress: Progress | None) -> None:
     batches, cur, size = [], [], 0
-    for s in segs:  # pack lines into requests of < 2000 chars, one line per row
+    for s in segs:  # requests of at most 100 lines / ~3000 characters
         line = s.zh.replace("\n", " ")
-        if cur and (size + len(line) + 1 > 2000 or len(cur) >= 100):
+        if cur and (size + len(line) + 1 > 3000 or len(cur) >= 100):
             batches.append(cur)
             cur, size = [], 0
         cur.append(s)
@@ -128,18 +189,18 @@ def _google(segs: list[Segment], progress: Progress | None) -> None:
     if cur:
         batches.append(cur)
 
+    def wait(seconds: float, why: str) -> None:
+        end = time.time() + seconds
+        while time.time() < end:  # in small steps, so Stop still works while waiting
+            if progress:
+                progress(done / len(segs), f"{why}; trying again in {int(end - time.time()) + 1} s…")
+            time.sleep(1)
+
     done = 0
     for batch in batches:
-        text = "\n".join(s.zh.replace("\n", " ") for s in batch)
-        out = _retry(lambda: _google_text(text)) or ""
-        lines = [x.strip() for x in out.split("\n")]
-        if len(lines) == len(batch):
-            for s, km in zip(batch, lines):
-                s.km = km
-        else:  # line count changed: fall back to one request per line
-            for s in batch:
-                s.km = (_retry(lambda: _google_text(s.zh)) or "").strip()
-                time.sleep(0.2)
+        out = _google_batch([s.zh.replace("\n", " ") for s in batch], wait)
+        for s, km in zip(batch, out):
+            s.km = km
         done += len(batch)
         time.sleep(0.5)
         if progress:
@@ -209,6 +270,88 @@ def _gemini(prompt: str, model: str, key: str | None) -> str:
 
 LLM_CALLS = {"claude": _claude, "openai": _openai, "gemini": _gemini}
 
+OPENROUTER_ANY_FREE = "openrouter/free"  # OpenRouter's own router to whichever free model is available
+_GONE_WORDS = ("not_found", "model_not_found", "no longer available", "does not exist", "decommissioned",
+               "not a valid model", "unknown model", "model not found", "has been deprecated", "is not supported")
+
+
+def _model_gone(e: BaseException) -> bool:
+    """The service says this model doesn't exist (any more)."""
+    status = (getattr(e, "status_code", None) or getattr(e, "code", None)
+              or getattr(getattr(e, "response", None), "status_code", None))
+    return status == 404 or any(w in str(e).lower() for w in _GONE_WORDS)
+
+
+def _gemini_models(key: str | None) -> list[str]:
+    from google import genai
+
+    client = genai.Client(api_key=key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    names = []
+    for m in client.models.list():
+        actions = getattr(m, "supported_actions", None) or []
+        if not actions or "generateContent" in actions:
+            names.append((m.name or "").removeprefix("models/"))
+    return names
+
+
+def _newest_gemini_flash(names: list[str]) -> str | None:
+    skip = ("lite", "image", "tts", "live", "audio", "embed", "exp", "thinking", "robotics", "native", "latest",
+            "computer", "customtools")
+    flash = [n for n in names if "flash" in n and not any(w in n for w in skip)]
+    pool = [n for n in flash if "preview" not in n] or flash
+
+    def version(n: str) -> float:
+        m = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+        return float(m.group(1)) if m else 0.0
+
+    return max(pool, key=version) if pool else None
+
+
+def _available_models(engine: str, key: str | None, base_url: str | None) -> list[str]:
+    try:
+        if engine == "gemini":
+            return _gemini_models(key)
+        if engine == "claude":
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+            return [m.id for m in client.models.list()]
+        from openai import OpenAI
+
+        listed = list(OpenAI(api_key=key or "none", base_url=base_url or None).models.list())
+        listed.sort(key=lambda m: getattr(m, "created", 0) or 0, reverse=True)
+        return [m.id for m in listed]
+    except Exception:
+        return []
+
+
+def _replacement(engine: str, provider: str, label: str, model: str, key: str | None, base_url: str | None,
+                 err: BaseException) -> str:
+    """A current model to use instead of a retired one, or a clear error naming some that work."""
+    if engine == "gemini":
+        new = _newest_gemini_flash(_available_models("gemini", key, None))
+        if new and new != model:
+            return new
+    if engine == "custom" and provider == "openrouter" and model != OPENROUTER_ANY_FREE:
+        return OPENROUTER_ANY_FREE
+    names = _available_models(engine, key, base_url)
+    hint = f" It offers for example: {', '.join(names[:8])}." if names else ""
+    raise RuntimeError(f"{label} no longer offers the model '{model}' (or the API address is wrong). Type a "
+                       f"current model name in Settings → More options → Model.{hint}") from err
+
+
+def _ask(call, prompt: str, model: str, key: str | None, engine: str, provider: str, label: str,
+         base_url: str | None, log: Callable[[str], None]) -> tuple[str, str]:
+    """Ask the AI. If the service retired the model, switch to a current one. Returns (reply, model used)."""
+    try:
+        return _retry(lambda: call(prompt, model, key), what=label), model
+    except Exception as e:
+        if not _model_gone(e):
+            raise
+        new = _replacement(engine, provider, label, model, key, base_url, e)
+        log(f"{label}: the model {model} is no longer offered; using {new} instead (change it in Settings).")
+        return _retry(lambda: call(prompt, new, key), what=label), new
+
 
 def _extract_json(raw: str) -> dict:
     """Parse JSON even if the model wrapped it in ```json fences or added a sentence."""
@@ -223,7 +366,7 @@ def _extract_json(raw: str) -> dict:
 
 def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
          key: str | None, progress: Progress | None, batch_size: int = 50, base_url: str | None = None,
-         label: str = "") -> None:
+         label: str = "", provider: str = "", log: Callable[[str], None] = print) -> None:
     label = label or engine  # the name people know: "groq", not "custom"
     if engine == "custom":
         call = lambda prompt, m, k: _openai(prompt, m, k, base_url)  # noqa: E731
@@ -234,7 +377,7 @@ def _llm(engine: str, segs: list[Segment], all_segs: list[Segment], model: str,
         batch = segs[i:i + batch_size]
         first = all_segs.index(batch[0])
         context = [s for s in all_segs[max(0, first - 12):first] if s.km]
-        raw = _retry(lambda: call(_payload(batch, context), model, key), what=label)
+        raw, model = _ask(call, _payload(batch, context), model, key, engine, provider, label, base_url, log)
         try:
             data = _extract_json(raw)
             got = {int(t["id"]): str(t["km"]).strip() for t in data["translations"]}
@@ -327,7 +470,7 @@ def translate(
         if engine in ("openai", "gemini") and not key:
             raise RuntimeError(f"{ENGINES[engine]} needs an API key (set {KEY_ENV[engine]} or paste it in the app).")
         _llm(engine, todo, segs, model, key, progress, base_url=base_url or None,
-             label=provider if engine == "custom" else engine)
+             label=provider if engine == "custom" else engine, provider=provider, log=log)
 
 
 # ---------------------------------------------------------------- shorten ----
@@ -355,7 +498,7 @@ def shorten(zh: str, km: str, seconds: float, engine: str, model: str = "", api_
               f"{seconds:.1f} seconds (about {syllables} Khmer syllables). Spoken, everyday Khmer.\n"
               'Reply as JSON {"translations": [{"id": 0, "km": "..."}]}.')
     label = provider if engine == "custom" else engine
-    raw = _retry(lambda: call(prompt, model, key), what=label)
+    raw, _ = _ask(call, prompt, model, key, engine, provider, label, base_url or None, lambda m: None)
     try:
         out = str(_extract_json(raw)["translations"][0]["km"]).strip()
     except Exception as e:

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from .project import Project
-from .translate import ENGINES
+# only real problems from the model libraries in the black window (not "set a HF_TOKEN" and similar notices)
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+
+from .project import Project  # noqa: E402
+from .translate import ENGINES  # noqa: E402
 
 
 def _region(s: str) -> dict:

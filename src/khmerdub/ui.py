@@ -645,6 +645,10 @@ def _friendly(err: BaseException) -> str:
         return "This video has no sound track, or the file is damaged."
     if msg.startswith("The Khmer voice service"):
         return msg
+    if "429" in msg and "translate" in msg.lower():
+        from .translate import GOOGLE_BUSY
+
+        return GOOGLE_BUSY
     if "edge" in msg.lower() or "WSServerHandshake" in msg or "ClientConnector" in msg:
         return ("Could not reach the Khmer voice service (it needs internet). Check the connection and press "
                 "the button again; it continues where it stopped.")
@@ -1100,9 +1104,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 yield {head: header_html(proj, msg), log_box: text, prep_msg: msg}
             if err:
                 yield {head: header_html(proj), prep_msg: f"**{_friendly(err)}**", log_box: text}
-                if _stopped(err):
-                    return
-                raise gr.Error(_friendly(err))
+                if not _stopped(err):  # the message is shown in full above; a red badge would sit on top of it
+                    gr.Warning(_friendly(err))
+                return
             out = {head: header_html(proj), table: table_value(proj), weft: weft_html(proj), log_box: text,
                    prep_msg: "Done. Check the lines in Review.", **go("review", str(proj.dir))}
             out.update(refresh_editor(d, proj))
