@@ -149,8 +149,10 @@ def _synth_many(todo: list[tuple[str, str, int, int, Path]], progress, label: st
                     done += 1
                     made += t.result()  # a local error (not the service) is raised here
                 jobs.check()
-                if max_failures is not None and (
-                        len(failed) > max_failures or (made == 0 and len(failed) >= min(CONCURRENCY, len(need)))):
+                # nothing working only means "service down" when more lines are left than may fail anyway:
+                # a few lines the service always refuses must not block every later run
+                if max_failures is not None and (len(failed) > max_failures or (
+                        made == 0 and len(need) > max_failures and len(failed) >= CONCURRENCY)):
                     raise RuntimeError(VOICE_BUSY)
                 if progress and finished:
                     progress(done / len(todo), f"{label} {done}/{len(todo)}")

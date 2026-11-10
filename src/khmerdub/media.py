@@ -142,7 +142,11 @@ def _ffmpeg_info(path: str | Path) -> VideoInfo:
         if times:
             hh, mm, ss = times[-1]
             seconds = int(hh) * 3600 + int(mm) * 60 + float(ss)
-    return VideoInfo(int(size.group(1)), int(size.group(2)), fps, int(seconds * fps), seconds)
+    w, h = int(size.group(1)), int(size.group(2))
+    rot = re.search(r"rotation of (-?[\d.]+) degrees", err) or re.search(r"rotate\s*:\s*(-?\d+)", err)
+    if rot and round(abs(float(rot.group(1)))) % 180 == 90:  # ffmpeg turns the picture upright: so do we
+        w, h = h, w
+    return VideoInfo(w, h, fps, int(seconds * fps), seconds)
 
 
 def read_frames(path: str | Path, start: float, duration: float | None, fps: float, width: int, height: int,

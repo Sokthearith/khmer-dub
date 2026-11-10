@@ -16,6 +16,16 @@ from .project import Project  # noqa: E402
 from .translate import ENGINES  # noqa: E402
 
 
+def _targets(value: str) -> list[str]:
+    from .blur import TARGETS
+
+    names = [x.strip() for x in value.split(",") if x.strip()]
+    bad = [x for x in names if x not in TARGETS.values()]
+    if bad:
+        raise SystemExit(f"--blur-targets: unknown {', '.join(bad)}. Use any of: {', '.join(TARGETS.values())}.")
+    return names
+
+
 def _region(s: str) -> dict:
     """x,y,w,h[,start,end] as fractions of the frame (0-1), times in seconds."""
     parts = [float(p) for p in s.split(",")]
@@ -150,8 +160,7 @@ def main(argv: list[str] | None = None) -> None:
                       ("subtitle_size", a.subtitle_size), ("blur", a.blur), ("blur_style", a.blur_style),
                       ("blur_sample_fps", a.blur_fps), ("max_speedup", a.max_speedup), ("video_quality", a.quality),
                       ("blur_regions", a.blur_region), ("translator_provider", a.provider),
-                      ("blur_targets", [x.strip() for x in a.blur_targets.split(",") if x.strip()]
-                       if a.blur_targets else None),
+                      ("blur_targets", _targets(a.blur_targets) if a.blur_targets else None),
                       ("translator_base_url", a.base_url), ("voice_speed", a.voice_speed),
                       ("voice_pitch", a.voice_pitch), ("subtitle_position", a.subtitle_position),
                       ("subtitle_color", a.subtitle_color), ("resolution", a.resolution)]:

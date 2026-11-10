@@ -20,6 +20,7 @@ from pathlib import Path
 import gradio as gr
 
 from . import __version__, jobs
+from .blur import CACHE_VERSION as BLUR_CACHE_VERSION
 from .project import Project, Settings
 from .translate import DEFAULT_MODELS, ENGINES, PROVIDERS
 
@@ -995,7 +996,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 segs = proj.load_segments() if proj.has_segments() else []
                 done = {"upload": True, "settings": bool(segs),
                         "review": bool(segs) and all(s.checked for s in segs),
-                        "blur": any(proj.dir.glob("blur_*.json")), "export": proj.output_video.exists()}
+                        "blur": any(proj.dir.glob(f"blur_*_v{BLUR_CACHE_VERSION}.json")),
+                        "export": proj.output_video.exists()}
             out = {}
             for sid, btn in rail.items():
                 cls = ["kd-step"] + (["kd-extra"] if sid in dict(EXTRAS) else [])
@@ -1474,7 +1476,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         to_blur.click(go_blur, blur_view_in, [tabs, blur_img, *rail_list])
 
-        def on_img_click(proj_v, t, box_list, pt, whole, a, b, blur_mode, fps, evt: gr.SelectData):
+        def on_img_click(proj_v, t, box_list, pt, whole, a, b, blur_mode, fps, targets, evt: gr.SelectData):
             proj = project_from_dir(proj_v)
             frame, _ = frame_at(proj, float(t or 0))
             H, W = frame.shape[:2]
@@ -1493,18 +1495,19 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 pt, msg = None, f"Box added ({len(box_list)} in total)."
             gr.Info(msg)
             return {boxes: box_list, pending_pt: pt, box_table: _box_rows(box_list),
-                    blur_img: draw_blur_frame(proj_v, t, box_list, pt, blur_mode, fps)}
+                    blur_img: draw_blur_frame(proj_v, t, box_list, pt, blur_mode, fps, targets)}
 
         blur_img.select(on_img_click, [proj_dir, blur_t, boxes, pending_pt, box_whole, box_from, box_to, blur,
-                                       blur_sample_fps], [boxes, pending_pt, box_table, blur_img])
+                                       blur_sample_fps, blur_targets], [boxes, pending_pt, box_table, blur_img])
 
-        def change_boxes(proj_v, t, box_list, blur_mode, fps, how):
+        def change_boxes(proj_v, t, box_list, blur_mode, fps, targets, how):
             proj = project_from_dir(proj_v)
             box_list = [] if how == "clear" else list(box_list or [])[:-1]
             _save_boxes(proj, box_list)
-            return box_list, _box_rows(box_list), None, draw_blur_frame(proj_v, t, box_list, None, blur_mode, fps)
+            return (box_list, _box_rows(box_list), None,
+                    draw_blur_frame(proj_v, t, box_list, None, blur_mode, fps, targets))
 
-        box_in = [proj_dir, blur_t, boxes, blur, blur_sample_fps]
+        box_in = [proj_dir, blur_t, boxes, blur, blur_sample_fps, blur_targets]
         box_out = [boxes, box_table, pending_pt, blur_img]
         undo_box.click(lambda *a: change_boxes(*a, "undo"), box_in, box_out)
         clear_box.click(lambda *a: change_boxes(*a, "clear"), box_in, box_out)

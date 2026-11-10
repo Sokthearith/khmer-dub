@@ -52,10 +52,14 @@ def pick(tracks: list[dict], targets) -> list[dict]:
 def _scrolls(k: np.ndarray, width: float, height: float) -> bool:
     """A banner: text sliding steadily one way along the top or bottom of the frame (not text that only
     seems to move because a tracker joined two different texts)."""
-    cx, cy = (k[:, 1] + k[:, 3]) / 2, (k[:, 2] + k[:, 4]) / 2
-    steps = np.diff(cx)
+    cy = (k[:, 2] + k[:, 4]) / 2
+    h = float(np.median(k[:, 4] - k[:, 2]))
+    # follow the edge that moves most: while a banner slides in or out, its other side is stuck at the frame edge
+    x = k[:, 1] if abs(k[-1, 1] - k[0, 1]) >= abs(k[-1, 3] - k[0, 3]) else k[:, 3]
+    steps = np.diff(x)
     moving = steps[np.abs(steps) > 0.5]
-    if len(moving) < 3 or abs(cx[-1] - cx[0]) < 0.25 * width or np.ptp(cy) > 0.1 * height:
+    # judged by steady one-way motion, not distance: a banner may be caught for only a second or two
+    if len(moving) < 3 or abs(x[-1] - x[0]) < max(0.08 * width, 2 * h) or np.ptp(cy) > 0.1 * height:
         return False
     one_way = max((moving > 0).mean(), (moving < 0).mean()) >= 0.8
     return one_way and (cy.mean() < 0.25 * height or cy.mean() > 0.75 * height)
@@ -79,6 +83,22 @@ def _kind(k: np.ndarray, text: str, moving: bool, chinese: bool, width: float, h
     if at_edge and span >= (6 if chinese else 20):  # stays put: a logo / channel name
         return "logo"
     return "other"
+
+
+def _anchored(k: np.ndarray, width: float) -> bool:
+    """Its centre stays put (only its width changes): subtitle lines of different lengths, not moving text."""
+    h = float(np.median(k[:, 4] - k[:, 2]))
+    cx, cy = (k[:, 1] + k[:, 3]) / 2, (k[:, 2] + k[:, 4]) / 2
+    return float(np.ptp(cy)) < 0.5 * h and float(np.ptp(cx)) < 0.12 * width
+
+
+def _jumpy(k: np.ndarray) -> bool:
+    """Jumps between samples: a tracker joined two different texts (not real, smooth motion)."""
+    if len(k) < 2:
+        return False
+    h = float(np.median(k[:, 4] - k[:, 2]))
+    cx, cy = (k[:, 1] + k[:, 3]) / 2, (k[:, 2] + k[:, 4]) / 2
+    return bool(np.any(np.hypot(np.diff(cx), np.diff(cy)) > 2.5 * h))  # (after a gap too: re-attached text)
 
 
 def _lines(k: np.ndarray, dt: float) -> list[np.ndarray]:
@@ -315,21 +335,29 @@ def build_tracks(raw: list[dict], mode: str, W: float, H: float, dt: float, scan
     items = []
     for tr in raw:
         k = np.array(tr["keys"])
-        moving = _travels(tr["keys"], W)
+        # a banner sliding in at the edge only grows (its far side is stuck there): count it as moving too
+        moving = (_travels(tr["keys"], W) and not _anchored(k, W)) or _scrolls(k, W, H)
         items.append((tr, k, moving, _kind(k, tr["text"], moving, tr["chinese"], W, H)))
     # this video's subtitle row: where most subtitle time is. Text off that row (a sign low in the picture)
     # is "other", not a subtitle.
     subs = [(float((k[:, 2] + k[:, 4]).mean() / 2), float(k[-1, 0] - k[0, 0]) + dt, float(np.median(k[:, 4] - k[:, 2])))
-            for _, k, _, kind in items if kind == "subtitle"]
+            for tr, k, _, kind in items if kind == "subtitle" and (mode != "chinese" or tr["chinese"])]
     if subs:
-        order = sorted(subs)
-        half, acc = sum(w for _, w, _ in order) / 2, 0.0
-        row = next(cy for cy, w, _ in order if (acc := acc + w) >= half)
         tol = float(np.median([h for _, _, h in subs]))
+        # rows = heights where much subtitle time is: the main row, plus a second one for two-line subtitles
+        buckets: list[list[float]] = []  # [centre, seconds]
+        for cy, w, _ in sorted(subs, key=lambda x: -x[1]):
+            b = next((b for b in buckets if abs(b[0] - cy) <= tol / 2), None)
+            if b:
+                b[1] += w
+            else:
+                buckets.append([cy, w])
+        main = max(buckets, key=lambda b: b[1])
+        rows = [b[0] for b in buckets if b[1] >= 0.25 * main[1] and abs(b[0] - main[0]) <= 2.5 * tol]
 
         def on_row(k: np.ndarray) -> bool:
-            h = float(np.median(k[:, 4] - k[:, 2]))
-            return abs(float((k[:, 2] + k[:, 4]).mean() / 2) - row) <= tol and 0.6 * tol <= h <= 1.5 * tol
+            h, cy = float(np.median(k[:, 4] - k[:, 2])), float((k[:, 2] + k[:, 4]).mean() / 2)
+            return any(abs(cy - r) <= tol for r in rows) and 0.6 * tol <= h <= 1.5 * tol
 
         # text on the subtitle row is subtitle, centred or not (long lines are often found as 2 pieces);
         # text claimed as subtitle but off the row is "other"
@@ -350,7 +378,7 @@ def build_tracks(raw: list[dict], mode: str, W: float, H: float, dt: float, scan
                 out.append({"keys": rnd(keys), "static": True, "text": tr["text"], "dt": 2 * dt, "kind": kind,
                             "pad": round(float(0.06 * (box[3] - box[1]) + 2), 1)})
             continue
-        if kind == "logo" and not (moving and _scrolls(k, W, H)):
+        if kind == "logo" and not (moving and (_scrolls(k, W, H) or not _jumpy(k))):
             # a fixed box where the logo usually is, robust to samples that belonged to other text nearby
             if len(k) < 5:  # few samples: the smallest one (a merge with other text only ever adds area)
                 box = list(k[np.argmin((k[:, 3] - k[:, 1]) * (k[:, 4] - k[:, 2])), 1:])
@@ -430,6 +458,8 @@ def _merge_still(tracks: list[dict], max_gap: float = 15.0) -> list[dict]:
                 lo, hi = min(a0, ma), max(b0, mb)
                 m["keys"] = [[lo, *u], [hi, *u]]
                 m["dt"] = max(m["dt"], tr["dt"])
+                if tr.get("kind") == "logo":  # a logo first seen too briefly to count as one is still a logo
+                    m["kind"] = "logo"
                 break
         else:
             merged.append({**tr, "keys": [list(k) for k in tr["keys"]]})
