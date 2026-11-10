@@ -44,7 +44,9 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     big = draw(1024)
     big.resize((512, 512), Image.LANCZOS).save(OUT / "icon.png", optimize=True)
-    big.save(OUT / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    # classic bitmap frames: every Windows version (and .NET's System.Drawing.Icon) can read them
+    big.save(OUT / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+             bitmap_format="bmp")
     big.save(OUT / "icon.icns")
     print("wrote", ", ".join(p.name for p in sorted(OUT.glob("icon.*"))))
 

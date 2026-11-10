@@ -93,7 +93,37 @@ def _chromium_window(url: str, width: int, height: int, log: Callable[[str], Non
     return None
 
 
+def _window_icon() -> str | None:
+    """The icon file for the native window: Windows needs a real .ico (a .png crashes it), others take the .png."""
+    if SYSTEM != "Windows":
+        return str(ICON_PNG) if ICON_PNG.exists() else None
+    try:
+        ok = ICON_ICO.read_bytes()[:4] == b"\x00\x00\x01\x00"  # the ICO file signature
+    except OSError:
+        ok = False
+    return str(ICON_ICO) if ok else None
+
+
+def _native_crash_marker() -> Path:
+    return _data_dir() / "native-window-starting"
+
+
+def _native_failed_marker() -> Path:
+    from . import __version__
+
+    return _data_dir() / f"native-window-failed-{__version__}"
+
+
 def _native_window(url: str, width: int, height: int, log: Callable[[str], None]) -> str | None:
+    # A crash inside the native window kills the whole program, so it can't be caught here. Instead a marker
+    # is left while it starts: if it is still there next time, that start crashed, and this version uses the
+    # Chrome/Edge app window from then on (a newer version tries the native window again).
+    starting, failed = _native_crash_marker(), _native_failed_marker()
+    if starting.exists():
+        starting.replace(failed)
+    if failed.exists():
+        log("The built-in window did not work last time; using an Edge/Chrome app window instead.")
+        return None
     try:
         import webview
     except Exception:
@@ -105,12 +135,19 @@ def _native_window(url: str, width: int, height: int, log: Callable[[str], None]
             width, height = min(width, int(screen.width * 0.92)), min(height, int(screen.height * 0.88))
         except Exception:
             pass
-        webview.create_window(TITLE, url, width=width, height=height, min_size=(880, 600))
-        webview.start(icon=str(ICON_PNG))
+        window = webview.create_window(TITLE, url, width=width, height=height, min_size=(880, 600))
+        starting.write_text(time.strftime("%Y-%m-%d %H:%M:%S"))
+        try:  # the window is up: it did not crash (also covers quitting by closing the black window)
+            window.events.shown += lambda: starting.unlink(missing_ok=True)
+        except Exception:
+            pass
+        webview.start(icon=_window_icon())
         return "native"
     except Exception as e:  # missing WebView2 / GUI toolkit: try the next way
         log(f"Native window not available ({e}); trying another way.")
         return None
+    finally:
+        starting.unlink(missing_ok=True)
 
 
 def open_window(url: str, width: int = 1440, height: int = 900, log: Callable[[str], None] = print) -> str:
