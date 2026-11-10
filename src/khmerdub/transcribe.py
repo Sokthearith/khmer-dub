@@ -101,7 +101,7 @@ def transcribe(
 
     out: list[Segment] = []
     for start, end, text in sorted(lines):
-        if text and not _is_made_up(text):
+        if any(ch.isalnum() for ch in text) and not _is_made_up(text):  # skip lines with no words ("、")
             out.append(Segment(id=len(out), start=round(start, 3), end=round(end, 3), zh=text))
     return out
 

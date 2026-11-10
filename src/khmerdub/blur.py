@@ -133,30 +133,9 @@ def _match_score(box, tr: _Track, t: float) -> float:
 
 def _sampled_frames(video: Path, fps: float, w: int, h: int, start: float, end: float | None):
     """Let ffmpeg decode (multi-threaded), pick `fps` frames per second and shrink them."""
-    import subprocess
+    from .media import read_frames
 
-    from .media import ffmpeg_exe
-
-    cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(video)]
-    if end:
-        cmd += ["-t", f"{end - start:.3f}"]
-    cmd += ["-an", "-vf", f"fps={fps:g},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
-    size = w * h * 3
-    from . import jobs
-
-    proc = jobs.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=size * 4)
-    try:
-        while True:
-            buf = proc.stdout.read(size)
-            if len(buf) < size:
-                break
-            yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
-        jobs.check()  # frames ran out because Stop ended ffmpeg: not the real end of the video
-    finally:
-        proc.stdout.close()
-        proc.kill()
-        proc.wait()
-        jobs.done(proc)
+    yield from read_frames(video, start, (end - start) if end else None, fps, w, h, scale_flags="area")
 
 
 def detect(

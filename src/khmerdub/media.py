@@ -84,7 +84,7 @@ def read_wav(path: str | Path) -> tuple[np.ndarray, int]:
     return a, sr
 
 
-@dataclass
+@dataclass(frozen=True)
 class VideoInfo:
     width: int
     height: int
@@ -94,6 +94,18 @@ class VideoInfo:
 
 
 def video_info(path: str | Path) -> VideoInfo:
+    """Size, frame rate and length. Remembered per file (and read again when the file changes): the app asks
+    for it every second while a job runs."""
+    p = Path(path)
+    try:
+        st = p.stat()
+    except OSError as e:
+        raise RuntimeError(f"Cannot open video {path}") from e
+    return _video_info(str(p.resolve()), st.st_mtime_ns, st.st_size)
+
+
+@functools.lru_cache(maxsize=64)
+def _video_info(path: str, _mtime_ns: int, _size: int) -> VideoInfo:
     import cv2
 
     cap = cv2.VideoCapture(str(path))
@@ -123,19 +135,28 @@ def _ffmpeg_info(path: str | Path) -> VideoInfo:
     fps = float(rate.group(1)) if rate else 25.0
     fps = fps if 0 < fps <= 240 else 25.0
     seconds = int(dur.group(1)) * 3600 + int(dur.group(2)) * 60 + float(dur.group(3)) if dur else 0.0
+    if not seconds:  # "Duration: N/A" (some WebM/MKV): read the video stream to its end to measure it
+        run = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path), "-map", "0:v:0", "-c", "copy", "-f",
+                              "null", "-"], capture_output=True, text=True, errors="replace").stderr
+        times = re.findall(r"time=(\d+):(\d+):([\d.]+)", run)
+        if times:
+            hh, mm, ss = times[-1]
+            seconds = int(hh) * 3600 + int(mm) * 60 + float(ss)
     return VideoInfo(int(size.group(1)), int(size.group(2)), fps, int(seconds * fps), seconds)
 
 
-def read_frames(path: str | Path, start: float, duration: float | None, fps: float, width: int, height: int):
-    """Yield BGR frames (writable numpy arrays) at a steady `fps`, decoded by ffmpeg.
+def read_frames(path: str | Path, start: float, duration: float | None, fps: float, width: int, height: int,
+                scale_flags: str = ""):
+    """Yield BGR frames (writable numpy arrays) at a steady `fps` and the given size, decoded by ffmpeg.
 
-    ffmpeg reads every format it knows (AV1, VP9, HEVC...); OpenCV's own decoder often can't."""
+    ffmpeg reads every format it knows (AV1, VP9, HEVC...); OpenCV's own decoder often can't. Stop ends it."""
     from . import jobs
 
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(path)]
     if duration:
         cmd += ["-t", f"{duration:.3f}"]
-    cmd += ["-an", "-sn", "-vf", f"fps={fps:.6f},scale={width}:{height}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    scale = f"scale={width}:{height}" + (f":flags={scale_flags}" if scale_flags else "")
+    cmd += ["-an", "-sn", "-vf", f"fps={fps:.6f},{scale}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     size = width * height * 3
     proc = jobs.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=size * 2)
     try:
@@ -152,8 +173,8 @@ def read_frames(path: str | Path, start: float, duration: float | None, fps: flo
         jobs.done(proc)
 
 
-def frame_at(path: str | Path, t: float, width: int | None = None) -> np.ndarray | None:
-    """One BGR frame at `t` seconds (optionally resized to `width`), decoded by ffmpeg; None if there is none."""
+def grab_frame(path: str | Path, t: float, width: int | None = None) -> tuple[np.ndarray | None, float]:
+    """(BGR frame at `t` seconds, scale): optionally resized to `width`, decoded by ffmpeg. (None, 1.0) if none."""
     info = video_info(path)
     w = width or info.width
     h = max(2, round(info.height * w / info.width / 2) * 2)
@@ -161,8 +182,8 @@ def frame_at(path: str | Path, t: float, width: int | None = None) -> np.ndarray
            "-frames:v", "1", "-an", "-sn", "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     out = subprocess.run(cmd, capture_output=True).stdout
     if len(out) < w * h * 3:
-        return None
-    return np.frombuffer(out[: w * h * 3], np.uint8).reshape(h, w, 3).copy()
+        return None, 1.0
+    return np.frombuffer(out[: w * h * 3], np.uint8).reshape(h, w, 3).copy(), w / info.width
 
 
 def fmt_time(t: float) -> str:

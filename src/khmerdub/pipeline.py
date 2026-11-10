@@ -181,8 +181,8 @@ class Pipeline:
         if missing:
             nums = ", ".join(map(str, missing[:12])) + ("…" if len(missing) > 12 else "")
             msg = (f"{len(missing)} line{'s' if len(missing) > 1 else ''} got no Khmer voice because the voice "
-                   f"service did not answer (line {nums}). They are silent for now: press the same button again "
-                   "to try just those lines.")
+                   f"service did not answer (line {nums}). They are silent for now. To retry only those lines, "
+                   "press Check timing in Review (quick), then make the video again.")
             self.warnings.append(msg)
             self.log("Note: " + msg)
         voice_removed = self.s.remove_voice and self.music_wav.exists()
@@ -297,7 +297,7 @@ class Pipeline:
         timing = json.loads(t.read_text()) if t.exists() else {}
         segs = self.p.load_segments() if self.p.has_segments() else []
         lines, counts = {}, {"ok": 0, "fast": 0, "late": 0, "long": 0, "short": 0, "changed": 0, "none": 0,
-                             "silent": 0, "novoice": 0}
+                             "silent": 0, "untranslated": 0, "novoice": 0}
         base = int(self.s.voice_speed)
         # the overall speed / pitch / timing settings changed since the voices were made: every line is stale
         same = timing.get("_settings", self._voice_settings()) == self._voice_settings()

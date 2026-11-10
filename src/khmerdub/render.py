@@ -62,14 +62,9 @@ def render(
     vf.append("format=yuv420p")
 
     use_frames = bool(timeline)
-    frames = None
-    if use_frames:  # decoded by ffmpeg (OpenCV can't read e.g. AV1 videos)
-        frames = read_frames(video, start, duration, info.fps, info.width, info.height)
-        first = next(frames, None)
-        if first is None:
-            raise RuntimeError("Could not read the video's picture. The file may be damaged.")
-        h, w = first.shape[:2]
-        vin = ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", f"{info.fps:.6f}", "-i", "-"]
+    if use_frames:  # frames decoded by ffmpeg (OpenCV can't read e.g. AV1), blurred here, piped to the encoder
+        vin = ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{info.width}x{info.height}", "-r", f"{info.fps:.6f}",
+               "-i", "-"]
     else:
         vin = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(video)]
 
@@ -97,15 +92,14 @@ def render(
     errlog = workdir / "ffmpeg_render.log"
     with open(errlog, "w") as ef:
         proc = jobs.popen(cmd, cwd=workdir, stdin=subprocess.PIPE if use_frames else None, stderr=ef)
-        try:
+        frames = None
+        try:  # whatever goes wrong below, the finally ends both ffmpeg programs
             if use_frames:
                 n = int(round(duration * info.fps))
-                frame = first
-                for i in range(n):
-                    if i:
-                        frame = next(frames, None)
-                        if frame is None:
-                            break
+                frames = read_frames(video, start, duration, info.fps, info.width, info.height)
+                got = 0
+                for i, frame in zip(range(n), frames):
+                    got += 1
                     jobs.check()
                     t = start + i / info.fps
                     boxes = timeline.boxes(t)
@@ -114,6 +108,8 @@ def render(
                     proc.stdin.write(memoryview(np.ascontiguousarray(frame)))
                     if progress and i % 100 == 0:
                         progress(i / max(1, n), f"Making video… {t / 60:.1f}/{(start + duration) / 60:.1f} min")
+                if not got:
+                    raise RuntimeError("Could not read the video's picture. The file may be damaged.")
                 proc.stdin.close()
             elif progress:
                 progress(0.5, "Making video…")
@@ -124,9 +120,13 @@ def render(
             proc.kill()
             proc.wait()
         finally:
-            jobs.done(proc)
             if frames is not None:
                 frames.close()
+            if proc.poll() is None:  # left early (an error): don't leave the encoder or its half file behind
+                proc.kill()
+                proc.wait()
+                part.unlink(missing_ok=True)
+            jobs.done(proc)
     if jobs.requested() or proc.returncode != 0:
         part.unlink(missing_ok=True)  # the previous video (if any) stays as it was
         if jobs.requested():

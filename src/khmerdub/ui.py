@@ -82,11 +82,11 @@ def fit_text(info: dict | None) -> str:
     return {"ok": "fits", "fast": f"×{info.get('factor', 1):.2f}".rstrip("0").rstrip("."),
             "late": f"{info.get('late', 0):.1f} s late", "long": f"{info.get('off', 0):.1f} s long",
             "short": f"{-info.get('off', 0):.1f} s short", "changed": "changed", "none": "—",
-            "silent": "no speech", "novoice": "no voice yet"}.get(st, "—")
+            "silent": "no speech", "untranslated": "no Khmer words", "novoice": "no voice yet"}.get(st, "—")
 
 
-PROBLEM = {"late", "long", "novoice"}
-TO_FIX = {"late", "long", "short", "fast", "changed", "novoice"}
+PROBLEM = {"late", "long", "novoice", "untranslated"}
+TO_FIX = {"late", "long", "short", "fast", "changed", "novoice", "untranslated"}
 
 
 def _report(proj: Project | None) -> dict:
@@ -114,6 +114,8 @@ def sync_html(proj: Project | None, rep: dict | None = None) -> str:
         parts.append(f'<span class="bad">{c["long"] + c["late"]} run over</span>')
     if c.get("novoice"):
         parts.append(f'<span class="bad">{c["novoice"]} without voice</span>')
+    if c.get("untranslated"):
+        parts.append(f'<span class="bad">{c["untranslated"]} with no Khmer words</span>')
     if c["changed"]:
         parts.append(f'<span class="dim">{c["changed"]} changed since</span>')
     return f'<div class="kd-syncline">Timing: {" · ".join(parts)}</div>'
@@ -579,14 +581,10 @@ def next_html(proj: Project, idx: int) -> str:
 
 
 def frame_at(proj: Project, t: float, width: int = 960):
-    """The picture at `t`, `width` pixels wide (decoded by ffmpeg, which reads AV1 and every other format)."""
-    from .media import frame_at as grab
-    from .media import video_info
+    """(picture at `t`, `width` pixels wide, scale) or (None, 1.0)."""
+    from .media import grab_frame
 
-    frame = grab(proj.video, t, width)
-    if frame is None:
-        return None, 1.0
-    return frame, width / video_info(proj.video).width
+    return grab_frame(proj.video, t, width)
 
 
 # =========================================================== background runs ==
@@ -1757,10 +1755,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 s.translator_provider = provider_name or s.translator_provider
                 s.translator_base_url = base_url_value or s.translator_base_url
             proj.save_settings(s)
+            pl = Pipeline(proj, s, key or None, log=lambda m: None)
             try:
-                out = Pipeline(proj, s, key or None, log=lambda m: None).run_all()
+                out = pl.run_all()
             except Exception as e:  # give the caller the real reason, not Gradio's generic message
                 raise gr.Error(_friendly(e)) from e
+            _warn([pl])  # e.g. lines left without a voice: callers see it as a Gradio warning
             srt = proj.path(f"{proj.video.stem}_khmer.srt")
             return str(out), str(srt) if srt.exists() else None
 
