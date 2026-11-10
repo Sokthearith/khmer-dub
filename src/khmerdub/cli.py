@@ -26,6 +26,13 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="khmerdub", description="Chinese video -> Khmer dub + subtitles + text blur")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    w = sub.add_parser("app", help="open Khmer Dub in its own window (what the start scripts use)")
+    w.add_argument("--projects", default=None, help="folder for projects (default: ./projects)")
+    w.add_argument("--port", type=int, default=None, help="local port (default: first free from 7860)")
+    w.add_argument("--no-shortcuts", action="store_true", help="don't create desktop / menu shortcuts")
+
+    sub.add_parser("shortcut", help="(re)create the Khmer Dub shortcuts on the desktop / Start menu / Applications")
+
     ui = sub.add_parser("ui", help="open the web app in your browser")
     ui.add_argument("--port", type=int, default=7860)
     ui.add_argument("--share", action="store_true", help="also create a temporary public link")
@@ -77,6 +84,21 @@ def main(argv: list[str] | None = None) -> None:
                    help="only render a 20s preview starting at SECONDS")
 
     a = ap.parse_args(argv)
+    if a.cmd == "app":
+        from .desktop import ensure_shortcuts
+        from .ui import launch
+
+        if not a.no_shortcuts:
+            ensure_shortcuts()
+        launch(port=a.port, projects_dir=a.projects, window=True)
+        return
+
+    if a.cmd == "shortcut":
+        from .desktop import make_shortcuts
+
+        make_shortcuts()
+        return
+
     if a.cmd == "ui":
         from .ui import launch
 

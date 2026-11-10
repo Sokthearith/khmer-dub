@@ -26,11 +26,21 @@ Internet is needed for the Khmer voices and for the online translators.
 
 1. **Download** this project: green **Code** button → **Download ZIP**, then unzip it
    (or `git clone https://github.com/Sokthearith/khmer-dub.git`).
-2. **Start it:**
+2. **Start it the first time:**
    - **Windows**: double-click **`start-windows.bat`**
    - **Mac**: double-click **`start-mac.command`** (the first time: right-click → Open → Open)
    - **Linux**: run **`./start-mac-linux.sh`** in a terminal
-3. The app opens in your browser at <http://localhost:7860>. Keep the black window open while you use it.
+3. Khmer Dub opens in **its own app window**, with its own icon. A small black window stays open
+   behind it; it does the work, so leave it open. Closing the Khmer Dub window stops the app.
+
+The first start also adds a **Khmer Dub** shortcut, so after that you open it like any other app:
+
+- **Windows**: on the desktop and in the Start menu
+- **Mac**: in *Applications* (your home folder's Applications) — drag it to the Dock if you like
+- **Linux**: in the app menu and on the desktop
+
+Keep the unzipped folder where it is: the shortcut points to it. If you move the folder, start it once
+from the folder again and the shortcut is updated (or run `uv run --extra cpu khmerdub shortcut`).
 
 The **first start takes 5–15 minutes**: it installs everything it needs (Python, AI models, 2–4 GB).
 Later starts take a few seconds. With an NVIDIA graphics card, the launchers use it automatically.
@@ -83,7 +93,7 @@ NLLB offline needs one extra install (about 2.5 GB, once):
 uv sync --extra cpu --extra offline
 ```
 
-Then start with `uv run --extra cpu --extra offline khmerdub ui`.
+Then start with `uv run --extra cpu --extra offline khmerdub app`.
 
 ### How the blur works
 
@@ -146,7 +156,7 @@ video, srt = client.predict(handle_file("episode01.mp4"), "google", "", "auto", 
 
 Arguments: video, translator (`google` `gemini` `claude` `openai` `custom` `nllb`), API key, voice
 (`auto` `sreymom` `piseth`), blur (`chinese` `all` `off`), subtitles (`burn` `soft` `none`).
-Share the app on your network with `khmerdub ui --share` (temporary public link) or open the port.
+`khmerdub app` opens the app window (what the start scripts run); `khmerdub ui` serves it to a browser instead, and `khmerdub ui --share` adds a temporary public link.
 
 **How it works**
 
@@ -162,6 +172,10 @@ video ─► RapidOCR text scan ─► tracks (still / moving) ─► blur ─�
 `subtitles`, `blur`, `render`), `pipeline.py` (order and caching), `cli.py` and `ui.py` (the web app).
 
 ## Troubleshooting
+
+- **It opens in the browser instead of its own window:** the app window needs Microsoft Edge WebView2 on
+  Windows (already part of Windows 10 and 11), and Chrome, Chromium or Edge on Linux. Without them it falls
+  back to your browser, which works the same.
 
 - **The black window closes right away (Windows):** right-click `start-windows.bat` → *Run as administrator*
   once, or install [uv](https://docs.astral.sh/uv/getting-started/installation/) yourself, then try again.

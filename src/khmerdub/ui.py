@@ -1386,15 +1386,28 @@ Command line: `uv run --extra cpu khmerdub run video.mp4 --help` and `khmerdub c
 """
 
 
-def launch(port: int = 7860, share: bool = False, projects_dir: str | None = None,
-           inbrowser: bool = True) -> None:
+def launch(port: int | None = 7860, share: bool = False, projects_dir: str | None = None,
+           inbrowser: bool = True, window: bool = False) -> None:
+    """Start the app. window=True shows it in its own app window and stops when that window closes."""
     global PROJECTS
     if projects_dir:
         PROJECTS = Path(projects_dir)
     PROJECTS.mkdir(parents=True, exist_ok=True)
     PROJECTS = PROJECTS.resolve()
+    from .desktop import ICON_PNG
+
     app = build_app()
     app.queue(default_concurrency_limit=1).launch(
-        server_port=port, share=share, inbrowser=inbrowser, allowed_paths=[str(PROJECTS), str(FONTS.resolve())],
-        theme=hol_theme(), css=build_css(), max_file_size="20gb",
+        server_port=port, share=share, inbrowser=inbrowser and not window,
+        allowed_paths=[str(PROJECTS), str(FONTS.resolve())], favicon_path=str(ICON_PNG),
+        theme=hol_theme(), css=build_css(), max_file_size="20gb", prevent_thread_lock=window, quiet=window,
     )
+    if not window:
+        return
+    from .desktop import open_window
+
+    print("Khmer Dub is starting in its own window. Keep this black window open; closing the app window stops it.")
+    how = open_window(app.local_url)
+    if how in ("handed-off", "browser"):
+        app.block_thread()  # can't see the window close: run until this console is closed or Ctrl+C
+    app.close()
