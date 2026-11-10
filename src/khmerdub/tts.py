@@ -30,13 +30,27 @@ from .media import load_audio, save_wav
 from .project import VOICES, Segment
 
 TTS_SR = 24000
-CONCURRENCY = 6
+CONCURRENCY = 4  # at the same time; more makes the free voice service refuse more often
 SLOWEST = 15  # % slower than the chosen speed, at most, to stretch a short line
 LATE, OFF_END = 0.15, 0.35  # seconds: what counts as "late" / ending clearly early or late
 
 
+VOICE_BUSY = ("The Khmer voice service (Microsoft) did not answer for many lines, even after waiting. It is "
+              "probably busy or the internet dropped. Wait a few minutes and press the button again: lines "
+              "already made are kept.")
+
+
+class VoiceFailed(Exception):
+    """The voice service gave no audio for one line, even after retries."""
+
+
 def _clean_text(t: str) -> str:
     return " ".join(t.replace("​", " ").split())
+
+
+def speakable(t: str) -> bool:
+    """Has something to say aloud (a letter or number), not only "..." or "!?" (the service refuses those)."""
+    return any(ch.isalnum() for ch in t)
 
 
 def _clip_path(tts_dir: Path, text: str, voice: str, rate: int, pitch: int = 0) -> Path:
@@ -53,8 +67,11 @@ def line_key(s: Segment) -> str:
 def synth_line(tts_dir: Path, text: str, voice: str, rate: int = 0, pitch: int = 0) -> Path:
     """Make (or reuse) the Khmer audio for one line; used by the app's 'listen' button."""
     text = _clean_text(text)
+    if not speakable(text):
+        raise RuntimeError("This line has nothing to say aloud (only punctuation), so it stays silent.")
     out = _clip_path(tts_dir, text, voice, rate, pitch)
-    _synth_many([(text, voice, rate, pitch, out)], None, "")
+    if _synth_many([(text, voice, rate, pitch, out)], None, ""):
+        raise RuntimeError(VOICE_BUSY)
     return out
 
 
@@ -73,19 +90,24 @@ async def _synth_one(sem, text: str, voice: str, rate: int, pitch: int, out: Pat
                 return
             except Exception as e:
                 if attempt == tries - 1:
-                    raise RuntimeError(
-                        "The Khmer voice service (Microsoft) did not answer, even after waiting. It is probably busy "
-                        "or the internet dropped. Wait a few minutes and press the button again: lines already "
-                        f"made are kept. ({type(e).__name__})") from e
+                    raise VoiceFailed(type(e).__name__) from e
                 await asyncio.sleep(min(30.0, 2.0 ** attempt) + random.random())
 
 
-def _synth_many(jobs: list[tuple[str, str, int, int, Path]], progress, label: str) -> None:
+def _synth_many(jobs: list[tuple[str, str, int, int, Path]], progress, label: str) -> set[Path]:
+    """Make the clips; returns the ones the voice service would not give (so one bad line can't sink a video)."""
     jobs = list({j[4]: j for j in jobs}.values())  # same clip once
+    failed: set[Path] = set()
+
+    async def one(sem, j):
+        try:
+            await _synth_one(sem, *j)
+        except VoiceFailed:
+            failed.add(j[4])
 
     async def main():
         sem = asyncio.Semaphore(CONCURRENCY)
-        tasks = [asyncio.create_task(_synth_one(sem, *j)) for j in jobs]
+        tasks = [asyncio.create_task(one(sem, j)) for j in jobs]
         for i, t in enumerate(asyncio.as_completed(tasks), 1):
             await t
             if progress:
@@ -93,6 +115,7 @@ def _synth_many(jobs: list[tuple[str, str, int, int, Path]], progress, label: st
 
     if jobs:
         asyncio.run(main())
+    return failed
 
 
 def decode(path: Path) -> np.ndarray:
@@ -118,7 +141,7 @@ class Placed:
     start: float
     end: float
     rate: int
-    status: str  # ok | fast | late | long | short
+    status: str  # ok | fast | late | long | short | silent (nothing to say) | novoice (the service gave none)
     late: float = 0.0
     off: float = 0.0  # + ends after the character stops, - ends before
     key: str = ""
@@ -142,15 +165,24 @@ def plan(lines: list[Segment], tts_dir: Path, total: float, base: int = 0, pitch
     tts_dir.mkdir(parents=True, exist_ok=True)
     text = {s.id: _clean_text(s.km) for s in lines}
     first_rate = {s.id: (s.rate if s.rate is not None else base) for s in lines}
+    clip = lambda s, r: _clip_path(tts_dir, text[s.id], s.voice, r, pitch)  # noqa: E731
 
+    silent = {s.id for s in lines if not speakable(text[s.id])}  # "..." and the like: subtitle only
+    talk = [s for s in lines if s.id not in silent]
     p1 = (lambda f, m: progress(f * 0.6, m)) if progress else None
-    _synth_many([(text[s.id], s.voice, first_rate[s.id], pitch, _clip_path(tts_dir, text[s.id], s.voice,
-                                                                             first_rate[s.id], pitch))
-                 for s in lines], p1, "Khmer voice: line")
+    failed = _synth_many([(text[s.id], s.voice, first_rate[s.id], pitch, clip(s, first_rate[s.id])) for s in talk],
+                         p1, "Khmer voice: line")
+    novoice = {s.id for s in talk if clip(s, first_rate[s.id]) in failed}
+    if len(novoice) > max(3, len(talk) // 20):  # not a few unlucky lines: the service is down
+        raise RuntimeError(VOICE_BUSY)
+    quiet = silent | novoice
 
     starts = [max(0.0, s.start + s.offset) for s in lines]
     rates, redo = {}, []
     for i, s in enumerate(lines):
+        if s.id in quiet:
+            rates[s.id] = first_rate[s.id]
+            continue
         if s.rate is not None:
             rates[s.id] = s.rate
             continue
@@ -168,10 +200,18 @@ def plan(lines: list[Segment], tts_dir: Path, total: float, base: int = 0, pitch
             redo.append((text[s.id], s.voice, r, pitch, _clip_path(tts_dir, text[s.id], s.voice, r, pitch)))
 
     p2 = (lambda f, m: progress(0.6 + f * 0.3, m)) if progress else None
-    _synth_many(redo, p2, "Khmer voice: fitting line")
+    failed = _synth_many(redo, p2, "Khmer voice: fitting line")
+    for s in lines:  # a faster/slower take the service would not give: keep the normal one
+        if s.id not in quiet and clip(s, rates[s.id]) in failed:
+            rates[s.id] = first_rate[s.id]
 
     clips, placed, cursor = {}, {}, 0.0
     for i, s in enumerate(lines):
+        if s.id in quiet:  # no voice: the subtitle keeps the original timing, nothing is pushed
+            clips[s.id] = np.zeros(0, dtype=np.float32)
+            placed[s.id] = Placed(round(starts[i], 3), round(max(starts[i], s.end + s.offset), 3), rates[s.id],
+                                  "silent" if s.id in silent else "novoice", 0.0, 0.0, line_key(s))
+            continue
         a = decode(_clip_path(tts_dir, text[s.id], s.voice, rates[s.id], pitch))
         clips[s.id] = a
         start = max(starts[i], cursor)

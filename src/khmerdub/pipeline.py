@@ -29,6 +29,7 @@ class Pipeline:
         self.api_key = api_key
         self._log = log
         self._progress = progress
+        self.warnings: list[str] = []  # things the user should know although the job finished
         self.p.save_settings(self.s)
 
     # ------------------------------------------------------------ helpers --
@@ -173,9 +174,17 @@ class Pipeline:
         segs = self.p.load_segments()
         total = video_info(self.p.video).duration or _wav_seconds(self.original_wav)
         self.log("Generating Khmer voices (Sreymom / Piseth)")
-        build_dub(segs, self.p.path("tts"), total, self.p.path("dub.wav"), self.p.path("timing.json"),
-                  self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch), self.s.fit_mode,
-                  meta=self._voice_settings())
+        placed = build_dub(segs, self.p.path("tts"), total, self.p.path("dub.wav"), self.p.path("timing.json"),
+                           self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch),
+                           self.s.fit_mode, meta=self._voice_settings())
+        missing = [n for n, sg in enumerate(segs, 1) if placed.get(sg.id) and placed[sg.id].status == "novoice"]
+        if missing:
+            nums = ", ".join(map(str, missing[:12])) + ("…" if len(missing) > 12 else "")
+            msg = (f"{len(missing)} line{'s' if len(missing) > 1 else ''} got no Khmer voice because the voice "
+                   f"service did not answer (line {nums}). They are silent for now: press the same button again "
+                   "to try just those lines.")
+            self.warnings.append(msg)
+            self.log("Note: " + msg)
         voice_removed = self.s.remove_voice and self.music_wav.exists()
         bed = self.music_wav if voice_removed else self.original_wav
         self.log("Mixing Khmer voice with " + ("music/effects (Chinese voice removed)" if voice_removed
@@ -287,7 +296,8 @@ class Pipeline:
         t = self.p.path("timing.json")
         timing = json.loads(t.read_text()) if t.exists() else {}
         segs = self.p.load_segments() if self.p.has_segments() else []
-        lines, counts = {}, {"ok": 0, "fast": 0, "late": 0, "long": 0, "short": 0, "changed": 0, "none": 0}
+        lines, counts = {}, {"ok": 0, "fast": 0, "late": 0, "long": 0, "short": 0, "changed": 0, "none": 0,
+                             "silent": 0, "novoice": 0}
         base = int(self.s.voice_speed)
         # the overall speed / pitch / timing settings changed since the voices were made: every line is stale
         same = timing.get("_settings", self._voice_settings()) == self._voice_settings()

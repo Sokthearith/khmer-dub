@@ -97,16 +97,72 @@ def video_info(path: str | Path) -> VideoInfo:
     import cv2
 
     cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video {path}")
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    w = h = n = 0
+    fps = 0.0
+    if cap.isOpened():
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps, n = cap.get(cv2.CAP_PROP_FPS) or 0.0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
+    if not (w and h and n > 0):  # OpenCV can't read this file well: ask ffmpeg
+        return _ffmpeg_info(path)
     if fps <= 0 or fps > 240:
         fps = 25.0
-    return VideoInfo(w, h, fps, n, n / fps if n > 0 else 0.0)
+    return VideoInfo(w, h, fps, n, n / fps)
+
+
+def _ffmpeg_info(path: str | Path) -> VideoInfo:
+    import re
+
+    err = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True,
+                         errors="replace").stderr
+    size = re.search(r"Video: .*?(\d{2,5})x(\d{2,5})", err)
+    if not size:
+        raise RuntimeError(f"Cannot open video {path}")
+    rate = re.search(r"([\d.]+) fps", err) or re.search(r"([\d.]+) tbr", err)
+    dur = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
+    fps = float(rate.group(1)) if rate else 25.0
+    fps = fps if 0 < fps <= 240 else 25.0
+    seconds = int(dur.group(1)) * 3600 + int(dur.group(2)) * 60 + float(dur.group(3)) if dur else 0.0
+    return VideoInfo(int(size.group(1)), int(size.group(2)), fps, int(seconds * fps), seconds)
+
+
+def read_frames(path: str | Path, start: float, duration: float | None, fps: float, width: int, height: int):
+    """Yield BGR frames (writable numpy arrays) at a steady `fps`, decoded by ffmpeg.
+
+    ffmpeg reads every format it knows (AV1, VP9, HEVC...); OpenCV's own decoder often can't."""
+    from . import jobs
+
+    cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(path)]
+    if duration:
+        cmd += ["-t", f"{duration:.3f}"]
+    cmd += ["-an", "-sn", "-vf", f"fps={fps:.6f},scale={width}:{height}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    size = width * height * 3
+    proc = jobs.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=size * 2)
+    try:
+        while True:
+            buf = proc.stdout.read(size)
+            if len(buf) < size:
+                break
+            yield np.frombuffer(buf, np.uint8).reshape(height, width, 3).copy()
+        jobs.check()  # frames ran out because Stop ended ffmpeg
+    finally:
+        proc.stdout.close()
+        proc.kill()
+        proc.wait()
+        jobs.done(proc)
+
+
+def frame_at(path: str | Path, t: float, width: int | None = None) -> np.ndarray | None:
+    """One BGR frame at `t` seconds (optionally resized to `width`), decoded by ffmpeg; None if there is none."""
+    info = video_info(path)
+    w = width or info.width
+    h = max(2, round(info.height * w / info.width / 2) * 2)
+    cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-ss", f"{max(0.0, t):.3f}", "-i", str(path),
+           "-frames:v", "1", "-an", "-sn", "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    out = subprocess.run(cmd, capture_output=True).stdout
+    if len(out) < w * h * 3:
+        return None
+    return np.frombuffer(out[: w * h * 3], np.uint8).reshape(h, w, 3).copy()
 
 
 def fmt_time(t: float) -> str:

@@ -81,11 +81,12 @@ def fit_text(info: dict | None) -> str:
     st = info.get("status", "none")
     return {"ok": "fits", "fast": f"×{info.get('factor', 1):.2f}".rstrip("0").rstrip("."),
             "late": f"{info.get('late', 0):.1f} s late", "long": f"{info.get('off', 0):.1f} s long",
-            "short": f"{-info.get('off', 0):.1f} s short", "changed": "changed", "none": "—"}.get(st, "—")
+            "short": f"{-info.get('off', 0):.1f} s short", "changed": "changed", "none": "—",
+            "silent": "no speech", "novoice": "no voice yet"}.get(st, "—")
 
 
-PROBLEM = {"late", "long"}
-TO_FIX = {"late", "long", "short", "fast", "changed"}
+PROBLEM = {"late", "long", "novoice"}
+TO_FIX = {"late", "long", "short", "fast", "changed", "novoice"}
 
 
 def _report(proj: Project | None) -> dict:
@@ -111,6 +112,8 @@ def sync_html(proj: Project | None, rep: dict | None = None) -> str:
         parts.append(f'<span>{c["short"]} end early</span>')
     if c["long"] or c["late"]:
         parts.append(f'<span class="bad">{c["long"] + c["late"]} run over</span>')
+    if c.get("novoice"):
+        parts.append(f'<span class="bad">{c["novoice"]} without voice</span>')
     if c["changed"]:
         parts.append(f'<span class="dim">{c["changed"]} changed since</span>')
     return f'<div class="kd-syncline">Timing: {" · ".join(parts)}</div>'
@@ -576,16 +579,14 @@ def next_html(proj: Project, idx: int) -> str:
 
 
 def frame_at(proj: Project, t: float, width: int = 960):
-    import cv2
+    """The picture at `t`, `width` pixels wide (decoded by ffmpeg, which reads AV1 and every other format)."""
+    from .media import frame_at as grab
+    from .media import video_info
 
-    cap = cv2.VideoCapture(str(proj.video))
-    cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, t) * 1000)
-    ok, frame = cap.read()
-    cap.release()
-    if not ok:
+    frame = grab(proj.video, t, width)
+    if frame is None:
         return None, 1.0
-    scale = width / frame.shape[1]
-    return cv2.resize(frame, (width, round(frame.shape[0] * scale))), scale
+    return frame, width / video_info(proj.video).width
 
 
 # =========================================================== background runs ==
@@ -627,6 +628,13 @@ def run_in_background(work, progress: gr.Progress):
 
 
 STOPPED = "Stopped. Finished steps are kept: press the same button again to continue."
+
+
+def _warn(pipes) -> None:
+    """Show what a finished job wants the user to know (e.g. lines the voice service skipped)."""
+    for pl in pipes:
+        for w in pl.warnings:
+            gr.Warning(w)
 
 
 def _stopped(err) -> bool:
@@ -1138,8 +1146,11 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             key = d.get(api_key) or None
             zh, km = d.get(zh_srt), d.get(km_srt)
 
+            pipes: list = []
+
             def work(log, prog):
-                return Pipeline(proj, s, key, log, prog).run_all(Path(zh) if zh else None, Path(km) if km else None)
+                pipes.append(Pipeline(proj, s, key, log, prog))
+                return pipes[-1].run_all(Path(zh) if zh else None, Path(km) if km else None)
 
             text, res, first = "", None, True
             for text, msg, _done, res, err in run_in_background(work, progress):
@@ -1154,6 +1165,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                     return
                 raise gr.Error(_friendly(err))
             gr.Info("The Khmer video is ready.")
+            _warn(pipes)
             yield {head: header_html(proj), log_box: text, table: table_value(proj), weft: weft_html(proj),
                    result: str(res), downloads: [str(p) for p in Pipeline(proj, s, log=lambda m: None).downloads()],
                    **rail_state("export", proj), **blank_editor()}
@@ -1356,8 +1368,11 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 raise gr.Error("There are no lines yet. Press Start in Settings first.")
             s = settings_from(d, proj)
 
+            pipes: list = []
+
             def work(log, prog):
-                return Pipeline(proj, s, None, log, prog).build_audio(prog)
+                pipes.append(Pipeline(proj, s, None, log, prog))
+                return pipes[-1].build_audio(prog)
 
             text = ""
             for text, msg, _done, _res, err in run_in_background(work, progress):
@@ -1368,6 +1383,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                     return
                 raise gr.Error(_friendly(err))
             gr.Info("Voices made. Lines marked in red run over the character; fix them with the timing tools.")
+            _warn(pipes)
             out = refresh_editor(d, proj)
             out.update({head: header_html(proj), log_box: text, table: table_value(proj, int(d[line_idx] or 0),
                                                                               d[only_fix]),
@@ -1540,8 +1556,11 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 raise gr.Error("There is no translation yet. Press Start in Settings, or Do everything.")
             s = settings_from(d, proj)
 
+            pipes: list = []
+
             def work(log, prog):
-                return Pipeline(proj, s, None, log, prog).produce()
+                pipes.append(Pipeline(proj, s, None, log, prog))
+                return pipes[-1].produce()
 
             text, res = "", None
             for text, msg, _done, res, err in run_in_background(work, progress):
@@ -1552,6 +1571,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                     return
                 raise gr.Error(_friendly(err))
             gr.Info("The Khmer video is ready.")
+            _warn(pipes)
             yield {head: header_html(proj), log_box: text, result: str(res),
                    downloads: [str(p) for p in Pipeline(proj, s, log=lambda m: None).downloads()],
                    folder: str(proj.dir), **rail_state("export", proj)}
@@ -1612,8 +1632,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                         def p(fr, m, i=i):
                             prog((i + fr) / len(files), f"{i + 1}/{len(files)}: {m}")
 
-                        finished.append(str(Pipeline(proj, s, key, log, p).run_all()))
-                        rows[i][1] = "done"
+                        pl = Pipeline(proj, s, key, log, p)
+                        finished.append(str(pl.run_all()))
+                        rows[i][1] = "done" + (" · some lines without voice (see log)" if pl.warnings else "")
                     except Exception as e:  # keep going with the next episode
                         rows[i][1] = f"failed: {_friendly(e)[:120]}"
                         log(f"{Path(f).name}: {e}")

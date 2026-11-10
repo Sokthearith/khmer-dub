@@ -11,7 +11,7 @@ import numpy as np
 
 from . import blur as blurmod
 from . import jobs
-from .media import ffmpeg_exe, ffmpeg_has_filter, video_info
+from .media import ffmpeg_exe, ffmpeg_has_filter, read_frames, video_info
 from .subtitles import write_ass, write_srt
 
 FONTS_DIR = Path(__file__).parent / "fonts"
@@ -37,8 +37,6 @@ def render(
     progress: Callable[[float, str], None] | None = None,
     log: Callable[[str], None] = print,
 ) -> Path:
-    import cv2
-
     info = video_info(video)
     total = info.duration
     duration = duration if duration is not None else max(0.0, total - start)
@@ -64,14 +62,12 @@ def render(
     vf.append("format=yuv420p")
 
     use_frames = bool(timeline)
-    cap = None
-    if use_frames:
-        cap = cv2.VideoCapture(str(video))
-        if start:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(start * info.fps)))
-        ok, first = cap.read()
-        if not ok:
-            raise RuntimeError("Could not read video frames")
+    frames = None
+    if use_frames:  # decoded by ffmpeg (OpenCV can't read e.g. AV1 videos)
+        frames = read_frames(video, start, duration, info.fps, info.width, info.height)
+        first = next(frames, None)
+        if first is None:
+            raise RuntimeError("Could not read the video's picture. The file may be damaged.")
         h, w = first.shape[:2]
         vin = ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", f"{info.fps:.6f}", "-i", "-"]
     else:
@@ -107,8 +103,8 @@ def render(
                 frame = first
                 for i in range(n):
                     if i:
-                        ok, frame = cap.read()
-                        if not ok:
+                        frame = next(frames, None)
+                        if frame is None:
                             break
                     jobs.check()
                     t = start + i / info.fps
@@ -129,8 +125,8 @@ def render(
             proc.wait()
         finally:
             jobs.done(proc)
-            if cap is not None:
-                cap.release()
+            if frames is not None:
+                frames.close()
     if jobs.requested() or proc.returncode != 0:
         part.unlink(missing_ok=True)  # the previous video (if any) stays as it was
         if jobs.requested():
