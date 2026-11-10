@@ -84,7 +84,7 @@ def subtitle_lines(segs: list[Segment], timing: dict | None) -> list[tuple[float
         if not s.km.strip():
             continue
         t = (timing or {}).get(str(s.id)) or (timing or {}).get(s.id)
-        start, end = (t["start"], t["end"]) if t else (s.start, s.end)
+        start, end = (t["start"], t.get("sub_end", t["end"])) if t else (s.start + s.offset, s.end + s.offset)
         out.append([start, max(end, start + 0.8), s.km.strip()])
     for a, b in zip(out, out[1:]):  # no overlaps
         if a[1] > b[0]:

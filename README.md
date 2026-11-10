@@ -62,12 +62,17 @@ The steps are listed down the left side; the top bar always shows the open proje
 |---|---|
 | **1 · Upload** | Drop in the Chinese video (or continue a saved project). You see its length and how long processing will take. |
 | **2 · Settings** | Pick a **quick choice** (Free & easy, Free AI, Best quality, Fastest) or set things yourself. Press **Start**. |
-| **3 · Review** | The coloured band shows the whole episode, one block per line (red Sreymom, blue Piseth, faded = not checked yet). Click a line to fix the Khmer, play the original and the Khmer voice, switch Sreymom/Piseth, then *Save and next*. *All lines → Find and Replace* fixes a name everywhere at once. |
+| **3 · Review** | The coloured band shows the whole episode, one block per line (red Sreymom, blue Piseth, faded = not checked yet). Click a line to fix the Khmer, play the original and the Khmer voice, switch Sreymom/Piseth, then *Save and next*. **Check timing** makes the voices and marks every line: *fits*, *×1.3* (sped up), *0.6 s long* or *late* (red, also marked under the band). Tick *Only lines to fix*, then per line: *Earlier / Later 0.1 s*, a fixed *Speed*, **Shorten** (an AI translator rewrites the line shorter) and **Play in video** to see it with the picture. *All lines → Find and Replace* fixes a name everywhere at once. |
 | **4 · Blur** | See what the app will blur (green boxes). Click two corners on the picture to add your own box. Make a 20-second preview. |
 | **5 · Export** | Press **Make the Khmer video**. Download the video, the Khmer subtitles (.srt), the Khmer soundtrack and the Chinese transcript. |
 | **Cut** | Split the Khmer video into 10- or 15-minute parts (or any length), or keep only a range like 1:30 to 45:00. Cutting the original Chinese video can open each part as its own project. Takes seconds. |
 
 In a hurry? Press **Do everything automatically** after uploading.
+**Timing.** Each Khmer line starts when the character starts talking and is stretched or sped up (0.85×–1.5×) to end
+when they stop; the app first finds those moments from the character's own voice. Lines that still don't fit are
+marked in Review. Mouth shapes can't match exactly in another language, but start and end can. Prefer the old
+behaviour (only speed up when a line would run into the next)? *Settings → More options → Voice timing*.
+
 Bookmark a project: `http://localhost:7860/?project=NAME&step=review&line=120` opens it at that step and line.
 Many episodes? Use the **Batch** tab: add them all and let it run (overnight, for example).
 

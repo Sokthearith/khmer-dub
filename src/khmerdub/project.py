@@ -29,6 +29,8 @@ class Segment:
     voice: str = "sreymom"  # key of VOICES
     pitch: float = 0.0  # median pitch of the original speaker (Hz), 0 = unknown
     checked: bool = False  # the creator reviewed this line in the app
+    offset: float = 0.0  # seconds to move the Khmer voice later (+) or earlier (-)
+    rate: int | None = None  # fixed speaking speed in % for this line (None = automatic)
 
     @property
     def duration(self) -> float:
@@ -52,6 +54,7 @@ class Settings:
     background_volume: float = 1.0
     dub_volume: float = 1.0
     max_speedup: float = 1.5
+    fit_mode: str = "match"  # match = start and end with the character | natural = only speed up when needed
     # subtitles
     subtitles: str = "burn"  # burn | soft | none
     subtitle_size: float = 1.0

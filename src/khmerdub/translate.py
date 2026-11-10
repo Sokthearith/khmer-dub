@@ -311,3 +311,37 @@ def translate(
         if engine in ("openai", "gemini") and not key:
             raise RuntimeError(f"{ENGINES[engine]} needs an API key (set {KEY_ENV[engine]} or paste it in the app).")
         _llm(engine, todo, segs, model, key, progress, base_url=base_url or None)
+
+
+# ---------------------------------------------------------------- shorten ----
+def shorten(zh: str, km: str, seconds: float, engine: str, model: str = "", api_key: str | None = None,
+            provider: str = "openrouter", base_url: str = "") -> str:
+    """Rewrite one Khmer line shorter so it can be spoken naturally in `seconds` (AI translators only)."""
+    if engine not in LLM_CALLS and engine != "custom":
+        raise RuntimeError("Shorten needs an AI translator, for example Gemini with a free key. "
+                           "Choose one in Settings, then try again.")
+    if engine == "custom":
+        url, env, suggested, _ = PROVIDERS.get(provider, PROVIDERS["other"])
+        base_url, model = base_url or url, model or suggested
+        key = api_key or (os.environ.get(env) if env else None)
+        call = lambda prompt, m, k: _openai(prompt, m, k, base_url)  # noqa: E731
+    else:
+        model = model or DEFAULT_MODELS.get(engine, "")
+        key = api_key or os.environ.get(KEY_ENV[engine])
+        if engine in ("openai", "gemini") and not key:
+            raise RuntimeError(f"{ENGINES[engine]} needs an API key (paste it in Settings).")
+        call = LLM_CALLS[engine]
+    syllables = max(3, round(seconds * 5))
+    prompt = (f"This Khmer dubbing line is too long to say in {seconds:.1f} seconds.\n"
+              f"Chinese original: {zh}\nCurrent Khmer: {km}\n"
+              f"Rewrite the Khmer so it keeps the meaning, tone and names, but can be spoken naturally in about "
+              f"{seconds:.1f} seconds (about {syllables} Khmer syllables). Spoken, everyday Khmer.\n"
+              'Reply as JSON {"translations": [{"id": 0, "km": "..."}]}.')
+    raw = _retry(lambda: call(prompt, model, key), what=engine)
+    try:
+        out = str(_extract_json(raw)["translations"][0]["km"]).strip()
+    except Exception as e:
+        raise RuntimeError(f"{engine} did not return a shorter line: {raw[:200]}") from e
+    if not out:
+        raise RuntimeError("The AI returned an empty line.")
+    return out

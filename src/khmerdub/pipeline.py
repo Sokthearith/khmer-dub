@@ -98,6 +98,8 @@ class Pipeline:
             segs = self.transcribe(self.stage(0.45, 0.8), zh_srt)
             self.p.save_segments(segs)
             self.p.path("voices_mode.txt").unlink(missing_ok=True)
+            self.p.path("bounds_refined.txt").unlink(missing_ok=True)
+        self.refine_bounds()
         segs = self.p.load_segments()
 
         marker = self.p.path("voices_mode.txt")
@@ -128,15 +130,29 @@ class Pipeline:
         return segs
 
     # ------------------------------------------------------------ stage 2 --
+    def refine_bounds(self) -> None:
+        """Once per transcript: snap each line to when the character's voice really starts and stops."""
+        marker = self.p.path("bounds_refined.txt")
+        if marker.exists() or not self.vocals_wav.exists() or not self.p.has_segments():
+            return
+        from .align import refine_bounds
+
+        segs = self.p.load_segments()
+        n = refine_bounds(segs, self.vocals_wav)
+        self.p.save_segments(segs)
+        marker.write_text(str(n))
+        self.log(f"Matched {n} lines to the exact moments the characters speak")
+
     def build_audio(self, progress: Progress) -> None:
         from .mix import mix
         from .tts import build_dub
 
+        self.refine_bounds()
         segs = self.p.load_segments()
         total = video_info(self.p.video).duration or _wav_seconds(self.original_wav)
         self.log("Generating Khmer voices (Sreymom / Piseth)")
         build_dub(segs, self.p.path("tts"), total, self.p.path("dub.wav"), self.p.path("timing.json"),
-                  self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch))
+                  self.s.max_speedup, progress, int(self.s.voice_speed), int(self.s.voice_pitch), self.s.fit_mode)
         voice_removed = self.s.remove_voice and self.music_wav.exists()
         bed = self.music_wav if voice_removed else self.original_wav
         self.log("Mixing Khmer voice with " + ("music/effects (Chinese voice removed)" if voice_removed
@@ -232,10 +248,105 @@ class Pipeline:
                         "-c:a", "aac", "-b:a", "96k", str(out)])
         return out
 
-    def line_khmer_audio(self, text: str, voice: str) -> Path:
+    def line_khmer_audio(self, text: str, voice: str, rate: int | None = None) -> Path:
         from .tts import synth_line
 
-        return synth_line(self.p.path("tts"), text, voice, int(self.s.voice_speed), int(self.s.voice_pitch))
+        r = int(self.s.voice_speed) if rate is None else int(rate)
+        return synth_line(self.p.path("tts"), text, voice, r, int(self.s.voice_pitch))
+
+    # ---------------------------------------------------------- sync check --
+    def fit_report(self) -> dict:
+        """Per line: how its Khmer voice fits the character (from the last 'make voices'), plus counts.
+
+        Lines edited since then are 'changed' until the voices are made again."""
+        from .tts import line_key
+
+        t = self.p.path("timing.json")
+        timing = json.loads(t.read_text()) if t.exists() else {}
+        segs = self.p.load_segments() if self.p.has_segments() else []
+        lines, counts = {}, {"ok": 0, "fast": 0, "late": 0, "long": 0, "short": 0, "changed": 0, "none": 0}
+        base = int(self.s.voice_speed)
+        for s in segs:
+            info = timing.get(str(s.id))
+            if not s.km.strip() or not info:
+                st = "none"
+            elif info.get("key") != line_key(s):
+                st = "changed"
+            else:
+                st = info.get("status", "ok")
+            counts[st] += 1
+            factor = round((1 + (info or {}).get("rate", base) / 100) / (1 + base / 100), 2)
+            lines[s.id] = {**(info or {}), "status": st, "factor": factor}
+        return {"made": bool(timing), "lines": lines, "counts": counts}
+
+    def line_preview(self, idx: int, seconds_before: float = 1.0, seconds_after: float = 1.5) -> Path:
+        """A short clip of one line in context: picture, music, the Khmer voices and the subtitle."""
+        import numpy as np
+
+        from .tts import TTS_SR, plan
+        from .media import save_wav
+        from .render import FONTS_DIR
+        from .subtitles import write_ass
+
+        self.refine_bounds()
+        segs = sorted((s for s in self.p.load_segments() if s.km.strip()), key=lambda s: s.start + s.offset)
+        all_segs = self.p.load_segments()
+        target = all_segs[idx]
+        if not target.km.strip():
+            raise RuntimeError("This line has no Khmer text yet.")
+        info = video_info(self.p.video)
+        k = next(i for i, s in enumerate(segs) if s.id == target.id)
+        near = segs[max(0, k - 4): k + 4]  # neighbours decide pushes and room
+        clips, placed = plan(near, self.p.path("tts"), info.duration, int(self.s.voice_speed),
+                             int(self.s.voice_pitch), self.s.max_speedup, self.s.fit_mode)
+        pl = placed[target.id]
+        a = max(0.0, min(target.start + target.offset, pl.start) - seconds_before)
+        b = min(info.duration, max(target.end + target.offset, pl.end) + seconds_after)
+        self.extract_audio()
+        bed_path = self.music_wav if (self.s.remove_voice and self.music_wav.exists()) else self.original_wav
+        import soundfile as sf
+
+        sr = sf.info(str(bed_path)).samplerate  # read only the seconds we need
+        bed, _ = sf.read(str(bed_path), start=int(a * sr), stop=int(b * sr), dtype="float32", always_2d=True)
+        bed = bed.mean(axis=1)
+        if bed_path == self.original_wav:
+            bed = bed * 0.25
+        mix = bed * float(self.s.background_volume)
+        for s in near:
+            c, p = clips[s.id], placed[s.id]
+            c = np.interp(np.arange(0, c.size, TTS_SR / sr), np.arange(c.size), c).astype("float32")  # 24 kHz -> sr
+            i0 = int((p.start - a) * sr)
+            if i0 >= mix.size or i0 + c.size <= 0:
+                continue
+            c0 = max(0, -i0)
+            i0 = max(0, i0)
+            part = c[c0: c0 + mix.size - i0] * float(self.s.dub_volume)
+            mix[i0: i0 + part.size] += part
+        peak = float(np.abs(mix).max()) if mix.size else 0
+        if peak > 0.98:
+            mix *= 0.98 / peak
+        clips_dir = self.p.path("clips")
+        clips_dir.mkdir(exist_ok=True)
+        wav = clips_dir / "line_preview.wav"
+        save_wav(wav, mix.astype("float32"), sr)
+        # subtitle for the lines in view
+        lines = [(placed[s.id].start, max(placed[s.id].end, s.end + s.offset), s.km) for s in near]
+        fonts = self.p.path("fonts")
+        fonts.mkdir(exist_ok=True)
+        for f in FONTS_DIR.glob("*.ttf"):
+            if not (fonts / f.name).exists():
+                shutil.copy(f, fonts / f.name)
+        write_ass(lines, self.p.path("line_preview.ass"), info.width, info.height, self.s.subtitle_size,
+                  offset=a, **self.sub_style())
+        out = clips_dir / f"line_{idx}_{int(time.time())}.mp4"
+        for old in clips_dir.glob("line_*.mp4"):
+            old.unlink(missing_ok=True)
+        vf = "ass=line_preview.ass:fontsdir=fonts,scale=-2:'min(480,ih)',format=yuv420p"
+        run_ffmpeg(["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(self.p.video), "-i", str(wav),
+                    "-map", "0:v:0", "-map", "1:a:0", "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast",
+                    "-crf", "26", "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", str(out)],
+                   cwd=self.p.dir)
+        return out
 
     def preview(self, start: float, seconds: float = 20.0) -> Path:
         """Short clip to check blur, subtitles and (if already made) the dub."""

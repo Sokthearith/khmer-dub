@@ -42,7 +42,8 @@ EXTRAS = [("cut", "Cut"), ("batch", "Batch"), ("help", "Help")]
 # Settings field names, in the same order as the components passed to `comp` in build_app().
 SETTING_FIELDS = [
     "translator", "translator_provider", "translator_base_url", "translator_model", "whisper_model",
-    "voice_mode", "voice_speed", "voice_pitch", "remove_voice", "max_speedup", "background_volume", "dub_volume",
+    "voice_mode", "voice_speed", "voice_pitch", "remove_voice", "max_speedup", "fit_mode", "background_volume",
+    "dub_volume",
     "subtitles", "subtitle_size", "subtitle_position", "subtitle_color", "subtitle_box",
     "blur", "blur_style", "blur_sample_fps", "video_quality", "resolution", "keep_original_audio",
 ]
@@ -66,6 +67,53 @@ TRANSLATOR_HELP = {
     "custom": "OpenRouter and Groq have free keys, DeepSeek is cheap, Ollama runs on this computer.",
     "nllb": "Runs here, no internet or key. Needs `uv sync --extra cpu --extra offline` once; basic quality.",
 }
+
+
+SPEED_CHOICES = [("Speed: auto", "auto"), ("Speed 0.85×", "-15"), ("Speed 0.9×", "-10"), ("Speed 1.0×", "0"),
+                 ("Speed 1.1×", "10"), ("Speed 1.2×", "20"), ("Speed 1.3×", "30"), ("Speed 1.4×", "40"),
+                 ("Speed 1.5×", "50")]
+
+
+def fit_text(info: dict | None) -> str:
+    """Short words for how a line's Khmer voice fits the character."""
+    if not info:
+        return "—"
+    st = info.get("status", "none")
+    return {"ok": "fits", "fast": f"×{info.get('factor', 1):.2f}".rstrip("0").rstrip("."),
+            "late": f"{info.get('late', 0):.1f} s late", "long": f"{info.get('off', 0):.1f} s long",
+            "short": f"{-info.get('off', 0):.1f} s short", "changed": "changed", "none": "—"}.get(st, "—")
+
+
+PROBLEM = {"late", "long"}
+TO_FIX = {"late", "long", "short", "fast", "changed"}
+
+
+def _report(proj: Project | None) -> dict:
+    if proj is None or not proj.has_segments():
+        return {"made": False, "lines": {}, "counts": {}}
+    from .pipeline import Pipeline
+
+    return Pipeline(proj, log=lambda m: None).fit_report()
+
+
+def sync_html(proj: Project | None, rep: dict | None = None) -> str:
+    if proj is None or not proj.has_segments():
+        return '<div class="kd-syncline">Make the Khmer voices to check how each line fits the character.</div>'
+    rep = rep or _report(proj)
+    if not rep["made"]:
+        return ('<div class="kd-syncline">Timing not checked yet. <b>Check timing</b> makes the Khmer voices and '
+                'shows which lines start and end with the character.</div>')
+    c = rep["counts"]
+    parts = [f'<span class="ok">{c["ok"]} fit</span>']
+    if c["fast"]:
+        parts.append(f'<span>{c["fast"]} faster</span>')
+    if c["short"]:
+        parts.append(f'<span>{c["short"]} end early</span>')
+    if c["long"] or c["late"]:
+        parts.append(f'<span class="bad">{c["long"] + c["late"]} run over</span>')
+    if c["changed"]:
+        parts.append(f'<span class="dim">{c["changed"]} changed since</span>')
+    return f'<div class="kd-syncline">Timing: {" · ".join(parts)}</div>'
 
 
 # =========================================================== theme & css ======
@@ -261,6 +309,20 @@ label span, .block-title {{ letter-spacing: .01em; }}
 .kd-band i.raw {{ background: repeating-linear-gradient(90deg, {RULE_L} 0 1px, transparent 1px 3px); }}
 .kd-band i.cur {{ background-color: {TUR} !important; opacity: 1; box-shadow: 0 0 0 1px {SILK}; position: relative; z-index: 1; }}
 
+/* ---- sync check */
+.kd-marks {{ display: flex; height: 4px; margin-top: 2px; }}
+.kd-marks i {{ display: block; height: 100%; min-width: 1px; }}
+.kd-marks i.bad {{ background: {LAC_T}; }}
+.kd-weft-key span.k-bad::before {{ height: 4px; vertical-align: 2px; background: {LAC_T}; }}
+.kd-sync {{ align-items: center; gap: 16px !important; margin: -8px 0 16px !important; }}
+.kd-syncline {{ font-size: 14px; color: {SILK_2}; }}
+.kd-syncline b {{ color: {SILK}; font-weight: 600; }}
+.kd-syncline .ok {{ color: {JADE}; font-weight: 600; }}
+.kd-syncline .bad {{ color: {LAC_T}; font-weight: 600; }}
+.kd-syncline .dim {{ color: {SILK_3}; }}
+.kd-timing {{ align-items: stretch; gap: 8px !important; }}
+.kd-timing > * {{ min-height: 40px; }}
+
 /* ---- line editor */
 .kd-voice label:nth-child(1):has(input:checked) {{ background: {LAC} !important; border-color: {LAC} !important;
   color: #ffffff !important; }}
@@ -380,18 +442,22 @@ def _duration(proj: Project) -> float:
 
 
 # =========================================================== rendered pieces ==
-def table_value(proj: Project | None, cur: int | None = None):
+def table_value(proj: Project | None, cur: int | None = None, only_fix: bool = False):
     """Line table as a styled DataFrame: the current line raised with a turmeric number, checked line numbers
     in jade, voices in their dye colour, Khmer larger than the muted Chinese."""
     import pandas as pd
 
-    cols = ["#", "Time", "Chinese", "Khmer", "Voice"]
+    cols = ["#", "Time", "Chinese", "Khmer", "Voice", "Fit"]
     if proj is None or not proj.has_segments():
         return pd.DataFrame([], columns=cols)
     segs = proj.load_segments()
-    df = pd.DataFrame([[i + 1, fmt_t(s.start, False), s.zh, s.km, "Sreymom" if s.voice == "sreymom" else "Piseth"]
-                       for i, s in enumerate(segs)], columns=cols)
+    fits = _report(proj)["lines"]
+    rows = [[i + 1, fmt_t(s.start, False), s.zh, s.km, "Sreymom" if s.voice == "sreymom" else "Piseth",
+             fit_text(fits.get(s.id))] for i, s in enumerate(segs)]
+    keep = [i for i, s in enumerate(segs) if not only_fix or fits.get(s.id, {}).get("status") in TO_FIX or i == cur]
+    df = pd.DataFrame([rows[i] for i in keep], columns=cols, index=keep)
     checked = [s.checked for s in segs]
+    status = [fits.get(s.id, {}).get("status", "none") for s in segs]
 
     def row_style(row):
         i = row.name
@@ -401,6 +467,9 @@ def table_value(proj: Project | None, cur: int | None = None):
         out[2] = f"color: {SILK_2}"
         out[3] = "font-size: 17px; line-height: 1.7" + ("" if row["Khmer"] else f"; background-color: {RAISED}")
         out[4] = f"color: {LAC_T if row['Voice'] == 'Sreymom' else SKY_T}"
+        st = status[i]
+        out[5] = (f"color: {JADE}" if st == "ok" else f"color: {LAC_T}; font-weight: 600" if st in PROBLEM
+                  else f"color: {SILK_3}" if st in ("changed", "none") else f"color: {SILK_2}")
         if i == cur:
             out = [o + f"; background-color: {RAISED}" for o in out]
             out[0] = f"background-color: {TUR}; color: {TUR_INK}; font-weight: 600"
@@ -434,7 +503,7 @@ def header_html(proj: Project | None, working: str = "") -> str:
     return f'<div class="kd-head">{mark}{body}{shuttle}</div>'
 
 
-def weft_html(proj: Project | None, cur: int | None = None) -> str:
+def weft_html(proj: Project | None, cur: int | None = None, rep: dict | None = None) -> str:
     if proj is None or not proj.has_segments():
         return ('<div class="kd-weft"><div class="kd-weft-head"><span>The episode appears here after Settings → '
                 'Start.</span></div><div class="kd-band"></div></div>')
@@ -443,10 +512,14 @@ def weft_html(proj: Project | None, cur: int | None = None) -> str:
         total = max(_duration(proj), segs[-1].end)
     except Exception:
         total = segs[-1].end
-    parts, t = [], 0.0
+    fits = (rep or _report(proj))["lines"]
+    parts, marks, t = [], [], 0.0
     for i, s in enumerate(segs):
         if s.start > t + 0.05:
             parts.append(f'<i class="g" style="flex:{s.start - t:.2f}"></i>')
+            marks.append(f'<i style="flex:{s.start - t:.2f}"></i>')
+        bad = fits.get(s.id, {}).get("status") in PROBLEM
+        marks.append(f'<i class="{"bad" if bad else ""}" style="flex:{max(s.duration, 0.15):.2f}"></i>')
         cls = "raw" if not s.km.strip() else s.voice + ("" if s.checked else " un")
         if i == cur:
             cls += " cur"
@@ -455,14 +528,16 @@ def weft_html(proj: Project | None, cur: int | None = None) -> str:
         t = max(t, s.end)
     if total > t:
         parts.append(f'<i class="g" style="flex:{total - t:.2f}"></i>')
+        marks.append(f'<i style="flex:{total - t:.2f}"></i>')
     n_ck = sum(1 for s in segs if s.checked)
     key = (f'<span style="--c:{LAC}">Sreymom</span><span style="--c:{SKY}">Piseth</span>'
-           f'<span style="--c:{TUR}">this line</span><span class="k-un">faded = not checked</span>')
+           f'<span style="--c:{TUR}">this line</span><span class="k-un">faded = not checked</span>'
+           f'<span class="k-bad">runs over</span>')
     if any(not s.km.strip() for s in segs):
         key += '<span class="k-raw">striped = no Khmer yet</span>'
     return (f'<div class="kd-weft"><div class="kd-weft-head"><span>Episode · {len(segs)} lines · {n_ck} checked · '
             f'block width = line length</span><span class="kd-weft-key">{key}</span></div>'
-            f'<div class="kd-band">{"".join(parts)}</div></div>')
+            f'<div class="kd-band">{"".join(parts)}</div><div class="kd-marks">{"".join(marks)}</div></div>')
 
 
 def facts_html(proj: Project) -> str:
@@ -685,6 +760,10 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                                 dub_volume = gr.Slider(0.2, 2, value=1.0, step=0.05, label="Khmer voice volume")
                             keep_original_audio = gr.Checkbox(label="Keep the Chinese sound as a second audio track",
                                                               value=False)
+                            fit_mode = gr.Radio(label="Voice timing",
+                                                choices=[("Match the character: start and end with them", "match"),
+                                                         ("Natural speed: only speed up when a line runs over",
+                                                          "natural")], value="match")
                             with gr.Row():
                                 zh_srt = gr.File(label="Chinese .srt (skips speech recognition)", file_types=[".srt"],
                                                  type="filepath", height=90)
@@ -700,11 +779,15 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                         gr.Markdown("## Review <span class='kd-km'>ពិនិត្យ</span>\nClick a line to check it. Listen, fix the Khmer, pick the voice, "
                                     "then Save and next.", elem_classes="kd-title")
                         weft = gr.HTML(weft_html(None), elem_classes="kd-html")
+                        with gr.Row(equal_height=True, elem_classes="kd-sync"):
+                            sync_info = gr.HTML(sync_html(None), elem_classes="kd-html")
+                            only_fix = gr.Checkbox(label="Only lines to fix", value=False, scale=0, min_width=170)
+                            make_voices_btn = gr.Button("Check timing", scale=0, min_width=150)
                         with gr.Row(equal_height=False):
                             with gr.Column(scale=3, min_width=560, elem_id="kd-lines"):
                                 table = gr.Dataframe(value=table_value(None), type="array", interactive=False,
                                                      wrap=True, max_height=620, show_label=False,
-                                                     column_widths=["7%", "9%", "28%", "42%", "14%"],
+                                                     column_widths=["6%", "8%", "22%", "36%", "14%", "14%"],
                                                      elem_classes="kd-table")
                             with gr.Column(scale=2, min_width=320, elem_id="kd-editor"):
                                 line_title = gr.Markdown("Pick a line on the left.", elem_classes="kd-linehead")
@@ -713,10 +796,19 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                                 line_voice = gr.Radio(label="Voice", choices=[("Sreymom", "sreymom"),
                                                                              ("Piseth", "piseth")], value="sreymom",
                                                       elem_classes="kd-voice")
+                                with gr.Row(equal_height=True, elem_classes="kd-timing"):
+                                    nudge_early = gr.Button("Earlier 0.1 s", min_width=110)
+                                    nudge_late = gr.Button("Later 0.1 s", min_width=110)
+                                    line_speed = gr.Dropdown(choices=SPEED_CHOICES, value="auto", show_label=False,
+                                                             container=False, min_width=130)
+                                    shorten_btn = gr.Button("Shorten", min_width=90)
                                 with gr.Row():
-                                    play_zh = gr.Button("Play original")
-                                    play_km = gr.Button("Play Khmer")
+                                    play_zh = gr.Button("Play original", min_width=100)
+                                    play_km = gr.Button("Play Khmer", min_width=100)
+                                    play_vid = gr.Button("Play in video", min_width=110)
                                 line_audio = gr.Audio(type="filepath", autoplay=True, interactive=False, visible=False,
+                                                      show_label=False)
+                                line_video = gr.Video(autoplay=True, interactive=False, visible=False, height=260,
                                                       show_label=False)
                                 with gr.Row():
                                     prev_line = gr.Button("Previous", scale=1, min_width=80)
@@ -824,7 +916,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         # =================================================== event handlers ====
         comp = dict(zip(SETTING_FIELDS, [
             translator, provider, base_url, model, whisper_model, voice_mode, voice_speed, voice_pitch, remove_voice,
-            max_speedup, background_volume, dub_volume, subtitles, subtitle_size, subtitle_position, subtitle_color,
+            max_speedup, fit_mode, background_volume, dub_volume, subtitles, subtitle_size, subtitle_position, subtitle_color,
             subtitle_box, blur, blur_style, blur_sample_fps, video_quality, resolution, keep_original_audio]))
         setting_comps = list(comp.values())
 
@@ -889,7 +981,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             out = {
                 proj_dir: str(proj.dir), head: header_html(proj), facts: facts_html(proj),
                 thumb: cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if frame is not None else None,
-                table: table_value(proj), weft: weft_html(proj), boxes: s.blur_regions,
+                table: table_value(proj), weft: weft_html(proj), sync_info: sync_html(proj), boxes: s.blur_regions,
                 box_table: _box_rows(s.blur_regions),
                 blur_t: gr.update(maximum=max(1.0, round(dur, 1)), value=min(5.0, dur / 3)),
                 folder: str(proj.dir), existing: gr.update(choices=list_projects(), value=proj.dir.name),
@@ -901,7 +993,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             out.update(rail_state("upload", proj))
             return out
 
-        load_out = list(dict.fromkeys([proj_dir, head, facts, thumb, table, weft, boxes, box_table, blur_t, folder,
+        load_out = list(dict.fromkeys([proj_dir, head, facts, thumb, table, weft, sync_info, boxes, box_table, blur_t, folder,
                                        existing, result, downloads, *setting_comps, *vis_out, *rail_list]))
 
         # an empty dict is not "no change" in Gradio (it counts as one value), so return one untouched output
@@ -986,26 +1078,37 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         auto_all_2.click(do_all, prep_in, auto_out, show_progress_on=[result])
 
         # ---- review: line editor
-        def show_line(proj_v, idx) -> dict:
+        def show_line(proj_v, idx, only: bool = False) -> dict:
             proj = project_from_dir(proj_v)
             segs = proj.load_segments() if proj.has_segments() else []
             if not segs:
                 return {line_title: "No lines yet. Press Start in Settings first."}
             idx = max(0, min(int(idx), len(segs) - 1))
             sg = segs[idx]
+            rep = _report(proj)
+            info = rep["lines"].get(sg.id)
+            fit = f" · {fit_text(info)}" if info and info.get("status") != "none" else ""
             mark = " · checked" if sg.checked else ""
+            nudge = f" · moved {sg.offset:+.1f} s" if abs(sg.offset) >= 0.05 else ""
             return {line_idx: idx,
-                    line_title: f"Line {idx + 1} of {len(segs)} · {fmt_t(sg.start)} → {fmt_t(sg.end)}{mark}",
+                    line_title: f"Line {idx + 1} of {len(segs)} · {fmt_t(sg.start)} → {fmt_t(sg.end)}{nudge}{fit}{mark}",
                     zh_text: sg.zh, km_text: sg.km, line_voice: sg.voice,
-                    line_audio: gr.Audio(value=None, visible=False),
-                    weft: weft_html(proj, idx), next_prev: next_html(proj, idx), table: table_value(proj, idx)}
+                    line_speed: "auto" if sg.rate is None else str(sg.rate),
+                    line_audio: gr.Audio(value=None, visible=False), line_video: gr.Video(value=None, visible=False),
+                    weft: weft_html(proj, idx, rep), next_prev: next_html(proj, idx),
+                    table: table_value(proj, idx, only), sync_info: sync_html(proj, rep)}
 
-        line_out = [line_idx, line_title, zh_text, km_text, line_voice, line_audio, weft, next_prev, table]
+        line_out = [line_idx, line_title, zh_text, km_text, line_voice, line_speed, line_audio, line_video, weft,
+                    next_prev, table, sync_info]
 
-        def on_table_select(proj_v, evt: gr.SelectData):
-            return show_line(proj_v, evt.index[0])
+        def on_table_select(proj_v, only, evt: gr.SelectData):
+            try:
+                idx = int(evt.row_value[0]) - 1  # the "#" column, so it also works when the table is filtered
+            except Exception:
+                idx = evt.index[0]
+            return show_line(proj_v, idx, only)
 
-        table.select(on_table_select, [proj_dir], line_out)
+        table.select(on_table_select, [proj_dir, only_fix], line_out)
 
         # keep the current line visible in the (virtualised) table on long episodes
         # reads "Line N of M" from the editor title (State values never reach the browser)
@@ -1033,36 +1136,80 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
           setTimeout(step, 100);
         }"""
 
-        def _save_current(proj_v, idx, km, voice) -> Project:
+        def _store(proj_v, idx, km, voice, checked: bool) -> Project:
             proj = project_from_dir(proj_v)
             segs = proj.load_segments() if proj.has_segments() else []
             if segs:
                 sg = segs[max(0, min(int(idx), len(segs) - 1))]
-                sg.km, sg.voice, sg.checked = (km or "").strip(), voice, True
+                sg.km, sg.voice = (km or "").strip(), voice
+                sg.checked = sg.checked or checked
                 proj.save_segments(segs)
                 # remember that voices are now hand-picked, so they aren't re-guessed
                 proj.path("voices_mode.txt").write_text(proj.load_settings().voice_mode)
             return proj
 
-        def do_save(proj_v, idx, km, voice):
-            proj = _save_current(proj_v, idx, km, voice)
+        def do_save(proj_v, idx, km, voice, only):
+            proj = _store(proj_v, idx, km, voice, True)
             gr.Info("Saved")
-            out = show_line(proj_v, idx)
+            out = show_line(proj_v, idx, only)
             out.update({head: header_html(proj), **rail_state("review", proj)})
             return out
 
-        def do_step(proj_v, idx, km, voice, delta, save):
-            proj = _save_current(proj_v, idx, km, voice) if save else project_from_dir(proj_v)
-            out = show_line(proj_v, int(idx) + delta)
+        def do_step(proj_v, idx, km, voice, only, delta, save):
+            proj = _store(proj_v, idx, km, voice, True) if save else project_from_dir(proj_v)
+            idx, nxt = int(idx), int(idx) + delta
+            if only:  # jump to the next line that still needs a look
+                fits = _report(proj)["lines"]
+                segs = proj.load_segments()
+                order = range(idx + 1, len(segs)) if delta > 0 else range(idx - 1, -1, -1)
+                nxt = next((i for i in order if fits.get(segs[i].id, {}).get("status") in TO_FIX), nxt)
+            out = show_line(proj_v, nxt, only)
             out.update({head: header_html(proj), **rail_state("review", proj)})
             return out
 
-        edit_in = [proj_dir, line_idx, km_text, line_voice]
+        edit_in = [proj_dir, line_idx, km_text, line_voice, only_fix]
         edit_out = [*line_out, head, *rail_list]
         for ev in (save_line.click(do_save, edit_in, edit_out),
                    next_line.click(lambda *a: do_step(*a, 1, True), edit_in, edit_out),
                    prev_line.click(lambda *a: do_step(*a, -1, False), edit_in, edit_out)):
             ev.then(None, None, None, js=scroll_js)
+
+        only_fix.change(lambda p, i, o: table_value(project_from_dir(p), int(i or 0), o) if p else gr.update(),
+                        [proj_dir, line_idx, only_fix], [table])
+
+        # ---- timing tools for one line
+        def _edit_timing(proj_v, idx, km, voice, only, delta=None, speed=None):
+            proj = _store(proj_v, idx, km, voice, False)
+            segs = proj.load_segments()
+            sg = segs[int(idx)]
+            if delta is not None:
+                sg.offset = round(max(-2.0, min(2.0, sg.offset + delta)), 2)
+            if speed is not None:
+                sg.rate = None if speed == "auto" else int(speed)
+            proj.save_segments(segs)
+            return show_line(proj_v, idx, only)
+
+        nudge_early.click(lambda *a: _edit_timing(*a, delta=-0.1), edit_in, line_out)
+        nudge_late.click(lambda *a: _edit_timing(*a, delta=0.1), edit_in, line_out)
+        line_speed.input(lambda p, i, k, v, o, sp: _edit_timing(p, i, k, v, o, speed=sp),
+                         [*edit_in, line_speed], line_out)
+
+        def do_shorten(d, progress=gr.Progress()):
+            from .translate import shorten
+
+            proj = project_from_dir(d[proj_dir])
+            sg = proj.load_segments()[int(d[line_idx])]
+            progress(0.3, desc="Asking the AI for a shorter line")
+            try:
+                new = shorten(sg.zh, d[km_text] or sg.km, max(sg.duration, 0.6), d[translator], d[model] or "",
+                              d.get(api_key) or None, d[provider], d[base_url] or "")
+            except Exception as e:
+                raise gr.Error(_friendly(e)) from e
+            gr.Info("Shorter line ready. Listen to it, then Save.")
+            return new
+
+        shorten_btn.click(do_shorten, {proj_dir, line_idx, km_text, translator, model, api_key, provider, base_url},
+                          [km_text], show_progress_on=[km_text])
 
         def do_play_zh(proj_v, idx):
             proj = project_from_dir(proj_v)
@@ -1070,18 +1217,62 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             return gr.Audio(value=str(Pipeline(proj, log=lambda m: None).line_original_audio(segs[int(idx)])),
                             visible=True)
 
-        def do_play_km(proj_v, km, voice):
+        def do_play_km(proj_v, idx, km, voice):
             if not (km or "").strip():
                 raise gr.Error("This line has no Khmer text yet.")
             proj = project_from_dir(proj_v)
+            sg = proj.load_segments()[int(idx)]
+            info = _report(proj)["lines"].get(sg.id, {})
+            same = (km or "").strip() == sg.km.strip() and voice == sg.voice and info.get("status") not in (
+                "changed", "none", None)
+            rate = info.get("rate") if same else sg.rate  # the fitted speed when nothing changed
             try:
-                return gr.Audio(value=str(Pipeline(proj, log=lambda m: None).line_khmer_audio(km, voice)),
+                return gr.Audio(value=str(Pipeline(proj, log=lambda m: None).line_khmer_audio(km, voice, rate)),
                                 visible=True)
             except Exception as e:
                 raise gr.Error(_friendly(e)) from e
 
         play_zh.click(do_play_zh, [proj_dir, line_idx], [line_audio])
-        play_km.click(do_play_km, [proj_dir, km_text, line_voice], [line_audio], show_progress_on=[line_audio])
+        play_km.click(do_play_km, [proj_dir, line_idx, km_text, line_voice], [line_audio],
+                      show_progress_on=[line_audio])
+
+        def do_play_video(proj_v, idx, km, voice, progress=gr.Progress()):
+            if not (km or "").strip():
+                raise gr.Error("This line has no Khmer text yet.")
+            proj = _store(proj_v, idx, km, voice, False)
+            progress(0.3, desc="Making a short clip of this line")
+            try:
+                out = Pipeline(proj, log=lambda m: None).line_preview(int(idx))
+            except Exception as e:
+                raise gr.Error(_friendly(e)) from e
+            return gr.Video(value=str(out), visible=True)
+
+        play_vid.click(do_play_video, [proj_dir, line_idx, km_text, line_voice], [line_video],
+                       show_progress_on=[line_video])
+
+        def do_make_voices(d, progress=gr.Progress()):
+            proj = project_from_dir(d[proj_dir])
+            if not proj.has_segments():
+                raise gr.Error("There are no lines yet. Press Start in Settings first.")
+            s = settings_from(d, proj)
+
+            def work(log, prog):
+                return Pipeline(proj, s, None, log, prog).build_audio(prog)
+
+            text = ""
+            for text, msg, _done, _res, err in run_in_background(work, progress):
+                yield {head: header_html(proj, msg), log_box: text}
+            if err:
+                yield {head: header_html(proj), log_box: text}
+                raise gr.Error(_friendly(err))
+            gr.Info("Voices made. Lines marked in red run over the character; fix them with the timing tools.")
+            out = show_line(d[proj_dir], int(d[line_idx] or 0), d[only_fix])
+            out.update({head: header_html(proj), log_box: text, **rail_state("review", proj)})
+            yield out
+
+        make_voices_btn.click(do_make_voices, {proj_dir, line_idx, only_fix, boxes, *setting_comps},
+                              list(dict.fromkeys([*line_out, head, log_box, *rail_list])),
+                              show_progress_on=[sync_info])
 
         def do_replace(proj_v, find, repl, idx):
             if not find:
@@ -1422,6 +1613,8 @@ HELP_MD = """
 2. **Settings**: a starting point at the top is enough for most videos. Press **Start**.
 3. **Review**: click a line, listen to the original and the Khmer, fix the text, choose Sreymom or Piseth,
    then **Save and next**. The band at the top shows the whole episode; faded blocks are not checked yet.
+   **Check timing** makes the voices and marks lines that don't fit the character (red = runs over). Tick
+   *Only lines to fix*, then use *Earlier / Later*, *Speed*, **Shorten** and **Play in video** on each one.
 4. **Blur**: check the green boxes; click two corners on the picture to add your own.
 5. **Export**: make the video and download it.
 
