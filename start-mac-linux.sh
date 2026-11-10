@@ -15,6 +15,9 @@ fi
 EXTRA=cpu
 if command -v nvidia-smi >/dev/null 2>&1; then EXTRA=gpu; fi
 
+# install a downloaded update (if any) before the app opens
+uv run --extra "$EXTRA" khmerdub update --apply || true
+
 echo
 echo "Starting Khmer Dub ($EXTRA mode). It opens in its own window when ready."
 echo "Keep this window open while you use the app."

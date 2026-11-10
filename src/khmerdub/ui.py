@@ -19,6 +19,7 @@ from pathlib import Path
 
 import gradio as gr
 
+from . import __version__
 from .project import Project, Settings
 from .translate import DEFAULT_MODELS, ENGINES, PROVIDERS
 
@@ -174,6 +175,14 @@ footer {{ border-top: 1px solid {RULE}; opacity: .7; }}
   animation: kd-shuttle 2.4s cubic-bezier(.16,1,.3,1) infinite alternate; }}
 @keyframes kd-shuttle {{ from {{ left: 0; }} to {{ left: 78%; }} }}
 @media (prefers-reduced-motion: reduce) {{ .kd-shuttle i {{ animation: none; width: 100%; opacity: .6; }} }}
+
+/* ---- update strip */
+#kd-update {{ background: {RAISED}; border-bottom: 1px solid {RULE}; padding: 8px 32px !important; gap: 12px !important;
+  align-items: center; margin: 0 !important; flex-wrap: nowrap; }}
+#kd-update .kd-update-msg {{ flex: 1 1 auto; }}
+#kd-update .kd-update-msg p {{ font-size: 14px !important; margin: 0 !important; color: {SILK} !important; }}
+#kd-update button {{ min-height: 40px; }}
+.kd-version {{ align-items: center; margin-bottom: 8px !important; }}
 
 /* ---- body: step rail + work area */
 #kd-body {{ gap: 0 !important; align-items: stretch; flex-wrap: nowrap; }}
@@ -561,6 +570,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         head = gr.HTML(header_html(None), elem_id="kd-head")
 
+        # update strip: shown only when a newer release exists (or one was just installed)
+        with gr.Row(visible=False, elem_id="kd-update", equal_height=True) as upd_row:
+            upd_msg = gr.Markdown("", elem_classes="kd-update-msg")
+            upd_btn = gr.Button("Update now", variant="primary", scale=0, min_width=140)
+            upd_later = gr.Button("Later", scale=0, min_width=96)
+
         with gr.Row(elem_id="kd-body", equal_height=False):
             with gr.Column(elem_id="kd-rail", scale=0, min_width=232):
                 rail = {sid: gr.Button(label, elem_id=f"rail-{sid}", elem_classes=["kd-step"] + (["on"] if i == 0 else []))
@@ -800,6 +815,10 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
                     # ---------------------------------------------- help
                     with gr.Tab("Help", id="help"):
+                        with gr.Row(equal_height=True, elem_classes="kd-version"):
+                            gr.Markdown(f"Khmer Dub **{__version__}**", elem_classes="kd-hint")
+                            chk_btn = gr.Button("Check for updates", scale=0, min_width=180)
+                        chk_msg = gr.Markdown("", elem_classes="kd-msg")
                         gr.Markdown(HELP_MD)
 
         # =================================================== event handlers ====
@@ -1290,6 +1309,65 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         batch_btn.click(do_batch, {batch_files, api_key, boxes, *setting_comps},
                         [batch_table, batch_out, log_box, existing], show_progress_on=[batch_table])
+
+        # ---- updates
+        def update_banner(use_cache: bool = True) -> dict:
+            from . import updater
+
+            done = updater.just_updated()
+            if done:
+                return {upd_row: gr.Row(visible=True), upd_btn: gr.Button(visible=False),
+                        upd_later: gr.Button(value="OK"),
+                        upd_msg: f"Khmer Dub is now **{done}**. "
+                                 f"[What's new](https://github.com/{updater.REPO}/releases/tag/v{done})"}
+            staged = updater.pending()
+            if staged:
+                return {upd_row: gr.Row(visible=True), upd_btn: gr.Button(visible=False),
+                        upd_later: gr.Button(value="OK"),
+                        upd_msg: f"Khmer Dub **{staged['version']}** is downloaded. Close this window and open "
+                                 "Khmer Dub again to finish the update."}
+            rel = updater.check(use_cache)
+            if not rel:
+                return {upd_row: gr.Row(visible=False)}
+            first = next((ln.strip(" #*-") for ln in rel.notes.splitlines() if ln.strip(" #*-")), "")
+            note = (first[:140] + "…") if len(first) > 140 else first
+            if updater.is_git_checkout():
+                return {upd_row: gr.Row(visible=True), upd_btn: gr.Button(visible=False),
+                        upd_later: gr.Button(value="Later"),
+                        upd_msg: f"Khmer Dub **{rel.version}** is available. This copy is a git folder: "
+                                 f"update it with `git pull`. [What's new]({rel.page_url})"}
+            return {upd_row: gr.Row(visible=True), upd_btn: gr.Button(visible=True), upd_later: gr.Button(value="Later"),
+                    upd_msg: f"Khmer Dub **{rel.version}** is available. {html.escape(note)} "
+                             f"[What's new]({rel.page_url})"}
+
+        upd_out = [upd_row, upd_msg, upd_btn, upd_later]
+        app.load(lambda: update_banner(True), None, upd_out, show_progress="hidden")
+
+        def do_update(progress=gr.Progress()):
+            from . import updater
+
+            rel = updater.check(use_cache=True)
+            if not rel:
+                raise gr.Error("No new version found.")
+            try:
+                updater.stage(rel, lambda f, m: progress(f, desc=m))
+            except Exception as e:
+                raise gr.Error(f"The update could not be downloaded: {e}") from e
+            return {upd_msg: f"Khmer Dub **{rel.version}** is downloaded. Close this window and open Khmer Dub "
+                             "again to finish the update.",
+                    upd_btn: gr.Button(visible=False), upd_later: gr.Button(value="OK")}
+
+        upd_btn.click(do_update, None, [upd_msg, upd_btn, upd_later], show_progress_on=[upd_msg])
+        upd_later.click(lambda: gr.Row(visible=False), None, [upd_row], queue=False)
+
+        def do_check():
+            out = update_banner(use_cache=False)
+            shown = out[upd_row].visible if upd_row in out else False
+            out[chk_msg] = ("A new version is available: see the bar at the top." if shown
+                            else f"You have the newest version ({__version__}).")
+            return out
+
+        chk_btn.click(do_check, None, [*upd_out, chk_msg])
 
         # ---- open a project from the address bar: ?project=NAME&step=review&line=6 (bookmarkable)
         def on_open(request: gr.Request):

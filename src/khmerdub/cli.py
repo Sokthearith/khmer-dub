@@ -33,6 +33,9 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("shortcut", help="(re)create the Khmer Dub shortcuts on the desktop / Start menu / Applications")
 
+    up = sub.add_parser("update", help="check for a new version and download it (installed at the next start)")
+    up.add_argument("--apply", action="store_true", help="install a downloaded update now (the start scripts do this)")
+
     ui = sub.add_parser("ui", help="open the web app in your browser")
     ui.add_argument("--port", type=int, default=7860)
     ui.add_argument("--share", action="store_true", help="also create a temporary public link")
@@ -91,6 +94,25 @@ def main(argv: list[str] | None = None) -> None:
         if not a.no_shortcuts:
             ensure_shortcuts()
         launch(port=a.port, projects_dir=a.projects, window=True)
+        return
+
+    if a.cmd == "update":
+        from . import updater
+
+        if a.apply:
+            updater.apply_pending()
+            return
+        print(f"This is Khmer Dub {updater.current_version()}.")
+        rel = updater.check(use_cache=False)
+        if not rel:
+            print("You have the newest version.")
+            return
+        print(f"Khmer Dub {rel.version} is available: {rel.page_url}")
+        if updater.is_git_checkout():
+            print("This copy is a git folder: update it with `git pull`.")
+            return
+        updater.stage(rel)
+        print("Downloaded. Close Khmer Dub and start it again to finish the update.")
         return
 
     if a.cmd == "shortcut":

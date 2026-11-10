@@ -47,6 +47,12 @@ Later starts take a few seconds. With an NVIDIA graphics card, the launchers use
 
 Nothing else to install: ffmpeg comes with the app, and so does a Khmer font for the subtitles.
 
+### Updating
+
+When a new version is out, a bar at the top of the app says **Khmer Dub X.Y.Z is available**. Click
+**Update now**, then close Khmer Dub and open it again: the update is installed as it starts. Your projects,
+settings and the downloaded AI models are kept. *Help → Check for updates* checks right away.
+
 ## Using the app
 
 The steps are listed down the left side; the top bar always shows the open project and how far it is
@@ -170,6 +176,15 @@ video ─► RapidOCR text scan ─► tracks (still / moving) ─► blur ─�
 
 `src/khmerdub/` has one module per step (`separate`, `transcribe`, `translate`, `voices`, `tts`, `mix`,
 `subtitles`, `blur`, `render`), `pipeline.py` (order and caching), `cli.py` and `ui.py` (the web app).
+
+**Publishing a new version** (for the maintainer): commit your changes, then
+
+```bash
+uv run python scripts/release.py 0.3.0 "One-line summary of what's new"
+```
+
+This sets the version, tags it, pushes, and creates the GitHub Release that everyone's app offers as an
+update. A copy that is a git folder never updates itself; use `git pull` there.
 
 ## Troubleshooting
 
