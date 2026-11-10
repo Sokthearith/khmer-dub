@@ -1,14 +1,16 @@
 """Find and blur on-screen text (by default only Chinese text).
 
-How it handles the three kinds of text in Chinese videos:
+Every piece of text found is sorted into one of three kinds, and the user picks which to blur
+("What to blur"; by default subtitles and logos, not every sign or screen in the picture):
 
-* static text (logos, watermarks, channel names): detected in the same place for a
-  long time -> one fixed blur box for that time span.
-* subtitle lines that pop up and change: each line is a short track, blurred only
-  while it is on screen.
-* moving / floating text: detections in consecutive samples are linked into a track
-  and the blur box is interpolated (and slightly extrapolated) between samples, so it
-  follows the text.
+* subtitle: the burned-in Chinese subtitle lines (bottom, centred, changing). Each line gets its
+  own tight box, only while it is on screen.
+* logo: watermarks, channel names and banners (bilibili...): text that stays at an edge or corner,
+  or scrolls across the frame. One fixed box (or one that follows the scrolling).
+* other: text that is part of the animation itself (signs, screens, papers): left alone unless asked.
+
+Moving / floating text: detections in consecutive samples are linked into a track and the
+blur box is interpolated (and slightly extrapolated) between samples, so it follows the text.
 
 Detection samples the video `sample_fps` times per second with the RapidOCR
 (PaddleOCR) text detector, skipping frames that didn't change. The recognizer runs
@@ -29,6 +31,67 @@ import numpy as np
 
 CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 DET_MAX_SIDE = 800
+CACHE_VERSION = 2  # scans saved by older versions are redone (they had no kinds and merged subtitles)
+TARGETS = {"subtitle": "subtitles", "logo": "logos", "other": "other"}  # kind -> "What to blur" choice
+DEFAULT_TARGETS = ["subtitles", "logos"]
+# words of watermarks / platform logos (also misread forms like "ilibli")
+WATERMARKS = ("bili", "ilibl", "哔哩", "抖音", "douyin", "tiktok", "快手", "kuaishou", "腾讯", "优酷", "youku", "爱奇艺",
+              "iqiyi", "芒果", "西瓜视频", "微博", "weibo", "小红书", "youtube", "漫剧", "短剧", "出品", "原创", "@")
+
+
+def cache_name(mode: str, sample_fps: float) -> str:
+    return f"blur_{mode}_{float(sample_fps):g}fps_v{CACHE_VERSION}.json"
+
+
+def pick(tracks: list[dict], targets) -> list[dict]:
+    """Only the kinds of text the user wants blurred (manual boxes always stay)."""
+    want = set(targets if targets is not None else DEFAULT_TARGETS)
+    return [t for t in tracks if t.get("text") == "manual" or TARGETS.get(t.get("kind", "other")) in want]
+
+
+def _scrolls(k: np.ndarray, width: float, height: float) -> bool:
+    """A banner: text sliding steadily one way along the top or bottom of the frame (not text that only
+    seems to move because a tracker joined two different texts)."""
+    cx, cy = (k[:, 1] + k[:, 3]) / 2, (k[:, 2] + k[:, 4]) / 2
+    steps = np.diff(cx)
+    moving = steps[np.abs(steps) > 0.5]
+    if len(moving) < 3 or abs(cx[-1] - cx[0]) < 0.25 * width or np.ptp(cy) > 0.1 * height:
+        return False
+    one_way = max((moving > 0).mean(), (moving < 0).mean()) >= 0.8
+    return one_way and (cy.mean() < 0.25 * height or cy.mean() > 0.75 * height)
+
+
+def _kind(k: np.ndarray, text: str, moving: bool, chinese: bool, width: float, height: float) -> str:
+    """subtitle | logo | other (see the module notes). k: samples [t, x0, y0, x1, y1]."""
+    low = (text or "").lower().replace(" ", "")
+    if any(w in low for w in WATERMARKS):
+        return "logo"
+    if moving:
+        return "logo" if _scrolls(k, width, height) else "other"
+    cx, cy = float((k[:, 1] + k[:, 3]).mean() / 2), float((k[:, 2] + k[:, 4]).mean() / 2)
+    h, span = float(np.median(k[:, 4] - k[:, 2])), float(k[-1, 0] - k[0, 0])
+    w = float(np.median(k[:, 3] - k[:, 1]))
+    changing = np.ptp(k[:, 1]) > 0.5 * h or np.ptp(k[:, 3]) > 0.5 * h  # different lines in the same place
+    low_centre = cy > 0.66 * height and abs(cx - width / 2) < 0.22 * width
+    if low_centre and h <= 0.16 * height and w >= 2.2 * h and (changing or span < 8):  # a line of 2+ characters
+        return "subtitle"
+    at_edge = cx < 0.22 * width or cx > 0.78 * width or cy < 0.15 * height or cy > 0.85 * height
+    if at_edge and span >= (6 if chinese else 20):  # stays put: a logo / channel name
+        return "logo"
+    return "other"
+
+
+def _lines(k: np.ndarray, dt: float) -> list[np.ndarray]:
+    """Split a subtitle track into its lines: a new line starts after a gap or where the text changes."""
+    runs, cur = [], [k[0]]
+    for a, b in zip(k[:-1], k[1:]):
+        if b[0] - a[0] <= max(0.9, 2.5 * dt) and _iou(a[1:], b[1:]) > 0.6:
+            cur.append(b)
+        else:
+            runs.append(np.array(cur))
+            cur = [b]
+    runs.append(np.array(cur))
+    return runs
 
 
 @dataclass
@@ -238,40 +301,123 @@ def detect(
     done += active
     scan_end = end or t
 
+    raw = [{"keys": tr.keys, "text": tr.text, "chinese": tr.chinese, "alive": id(tr) in alive_at_end} for tr in done]
+    out = build_tracks(raw, mode, W, H, dt, scan_end)
+    if progress:
+        progress(1.0, f"Found {len(out)} text tracks to blur")
+    return out
+
+
+def build_tracks(raw: list[dict], mode: str, W: float, H: float, dt: float, scan_end: float) -> list[dict]:
+    """Turn the scan's raw tracks ({keys, text, chinese, alive}) into blur tracks: sort each into a kind,
+    one tight box per subtitle line, a fixed box per logo, and follow moving text."""
+    rnd = lambda keys: [[round(float(v), 2) for v in key] for key in keys]  # noqa: E731
+    items = []
+    for tr in raw:
+        k = np.array(tr["keys"])
+        moving = _travels(tr["keys"], W)
+        items.append((tr, k, moving, _kind(k, tr["text"], moving, tr["chinese"], W, H)))
+    # this video's subtitle row: where most subtitle time is. Text off that row (a sign low in the picture)
+    # is "other", not a subtitle.
+    subs = [(float((k[:, 2] + k[:, 4]).mean() / 2), float(k[-1, 0] - k[0, 0]) + dt, float(np.median(k[:, 4] - k[:, 2])))
+            for _, k, _, kind in items if kind == "subtitle"]
+    if subs:
+        order = sorted(subs)
+        half, acc = sum(w for _, w, _ in order) / 2, 0.0
+        row = next(cy for cy, w, _ in order if (acc := acc + w) >= half)
+        tol = float(np.median([h for _, _, h in subs]))
+
+        def on_row(k: np.ndarray) -> bool:
+            h = float(np.median(k[:, 4] - k[:, 2]))
+            return abs(float((k[:, 2] + k[:, 4]).mean() / 2) - row) <= tol and 0.6 * tol <= h <= 1.5 * tol
+
+        # text on the subtitle row is subtitle, centred or not (long lines are often found as 2 pieces);
+        # text claimed as subtitle but off the row is "other"
+        items = [(tr, k, mv, ("subtitle" if on_row(k) and not mv else "other")
+                  if kind in ("subtitle", "other") else kind) for tr, k, mv, kind in items]
     out = []
-    for tr in done:
-        if mode == "chinese" and not tr.chinese:
-            continue
-        k = np.array(tr.keys)
+    for tr, k, moving, kind in items:
         h = np.median(k[:, 4] - k[:, 2])
-        moving = _travels(tr.keys, W)
+        if mode == "chinese" and not tr["chinese"] and kind != "logo":  # logos may be Latin ("bilibili")
+            continue
         if len(k) == 1 and mode == "all" and h < 12:
+            continue
+        if kind == "subtitle":  # one tight box per line, only while that line is on screen
+            for r in _lines(k, dt):
+                box = [r[:, 1].min(), r[:, 2].min(), r[:, 3].max(), r[:, 4].max()]
+                keys = [[r[0, 0], *box], [r[-1, 0], *box]] if r[-1, 0] > r[0, 0] else [[r[0, 0], *box]]
+                # 2 samples either side: a line appears/goes between two samples, never a frame left readable
+                out.append({"keys": rnd(keys), "static": True, "text": tr["text"], "dt": 2 * dt, "kind": kind,
+                            "pad": round(float(0.06 * (box[3] - box[1]) + 2), 1)})
+            continue
+        if kind == "logo" and not (moving and _scrolls(k, W, H)):
+            # a fixed box where the logo usually is, robust to samples that belonged to other text nearby
+            if len(k) < 5:  # few samples: the smallest one (a merge with other text only ever adds area)
+                box = list(k[np.argmin((k[:, 3] - k[:, 1]) * (k[:, 4] - k[:, 2])), 1:])
+            else:
+                box = [np.percentile(k[:, 1], 10), np.percentile(k[:, 2], 10),
+                       np.percentile(k[:, 3], 90), np.percentile(k[:, 4], 90)]
+            last_t = max(k[-1, 0], scan_end) if tr["alive"] and len(k) >= 3 else k[-1, 0]
+            keys = [[k[0, 0], *box], [last_t, *box]] if last_t > k[0, 0] else [[k[0, 0], *box]]
+            out.append({"keys": rnd(keys), "static": True, "text": tr["text"], "dt": max(dt, 0.6), "kind": kind,
+                        "pad": round(float(0.1 * h + 2), 1)})
             continue
         if not moving:
             box = [k[:, 1].min(), k[:, 2].min(), k[:, 3].max(), k[:, 4].max()]
             last_t = k[-1, 0]
-            if id(tr) in alive_at_end and len(k) >= 3:
+            if tr["alive"] and len(k) >= 3:
                 last_t = max(last_t, scan_end)  # still on screen when the video ends
             keys = [[k[0, 0], *box], [last_t, *box]] if last_t > k[0, 0] else [[k[0, 0], *box]]
             ext = max(dt, 0.6)  # still text: a little extra margin before/after
         else:
             keys = k.tolist()
             ext = dt
-            tail = _follow_out(k, W, scan_end, id(tr) in alive_at_end)
+            tail = _follow_out(k, W, scan_end, tr["alive"])
             if tail:
                 keys.append(tail)
-        out.append({"keys": [[round(v, 2) for v in key] for key in keys],
-                    "static": not moving, "text": tr.text, "dt": ext})
-    out = _merge_still(out)
-    if progress:
-        progress(1.0, f"Found {len(out)} text tracks to blur")
+        out.append({"keys": rnd(keys), "static": not moving, "text": tr["text"], "dt": ext, "kind": kind})
+    start = min((tr["keys"][0][0] for tr in raw), default=0.0)
+    return _whole_video_logos(_merge_still(out), start, scan_end)
+
+
+def _whole_video_logos(tracks: list[dict], start: float, end: float, share: float = 0.4) -> list[dict]:
+    """A watermark seen in the same place for much of the video is there all the time (detection just drops
+    out now and then): blur it from start to end instead of leaving gaps."""
+    span = max(end - start, 1e-6)
+    groups: list[list[dict]] = []
+    for t in (t for t in tracks if t.get("kind") == "logo" and t["static"]):
+        g = next((g for g in groups if _iou(g[0]["keys"][0][1:], t["keys"][0][1:]) > 0.3), None)
+        (g.append(t) if g else groups.append([t]))
+    out = [t for t in tracks if not (t.get("kind") == "logo" and t["static"])]
+    whole, rest = [], []
+    for g in groups:
+        seen = sum(t["keys"][-1][0] - t["keys"][0][0] + 2 * t["dt"] for t in g)
+        if seen >= share * span:
+            whole.append([float(v) for v in np.median(np.array([t["keys"][0][1:] for t in g]), axis=0)])
+        else:
+            rest += g
+    for t in rest:  # a piece of the same watermark seen only now and then (a stylised "bilibili"): join it
+        b = t["keys"][0][1:]
+        for w in whole:
+            h = min(b[3] - b[1], w[3] - w[1])
+            same_row = min(b[3], w[3]) - max(b[1], w[1]) >= 0.5 * h
+            if same_row and max(b[0] - w[2], w[0] - b[2]) <= 1.5 * h:
+                w[:] = [min(w[0], b[0]), min(w[1], b[1]), max(w[2], b[2]), max(w[3], b[3])]
+                break
+        else:
+            out.append(t)
+    for w in whole:
+        box = [round(v, 2) for v in w]
+        out.append({"keys": [[start, *box], [end, *box]], "static": True, "text": "watermark", "dt": 0.6,
+                    "kind": "logo", "pad": round(0.1 * (box[3] - box[1]) + 2, 1)})
     return out
 
 
 def _merge_still(tracks: list[dict], max_gap: float = 15.0) -> list[dict]:
     """Join still-text pieces at the same place with short gaps between them (e.g. a logo
     the detector lost for a moment), so the blur doesn't switch off in between."""
-    still = sorted((t for t in tracks if t["static"]), key=lambda t: t["keys"][0][0])
+    joinable = lambda t: t["static"] and t.get("kind") != "subtitle"  # noqa: E731 - subtitle lines stay apart
+    still = sorted((t for t in tracks if joinable(t)), key=lambda t: t["keys"][0][0])
     merged: list[dict] = []
     for tr in still:
         a0, b0 = tr["keys"][0][0], tr["keys"][-1][0]
@@ -287,7 +433,7 @@ def _merge_still(tracks: list[dict], max_gap: float = 15.0) -> list[dict]:
                 break
         else:
             merged.append({**tr, "keys": [list(k) for k in tr["keys"]]})
-    return merged + [t for t in tracks if not t["static"]]
+    return merged + [t for t in tracks if not joinable(t)]
 
 
 def save_tracks(tracks: list[dict], path: Path) -> None:
@@ -306,7 +452,7 @@ def manual_tracks(regions: list[dict], width: int, height: int, duration: float)
         x1, y1 = x0 + r["w"] * width, y0 + r["h"] * height
         a, b = float(r.get("start") or 0), float(r.get("end") or duration)
         out.append({"keys": [[a, x0, y0, x1, y1], [b, x0, y0, x1, y1]], "static": True,
-                    "text": "manual", "dt": 0.0, "pad": 0.0})
+                    "text": "manual", "dt": 0.0, "pad": 0.0, "kind": "manual"})
     return out
 
 
@@ -360,8 +506,8 @@ class Timeline:
             box = [k0[i] + (k1[i] - k0[i]) * f for i in range(1, 5)]
             vel = float(np.hypot(k1[1] - k0[1], k1[2] - k0[2]) / max(k1[0] - k0[0], 1e-6))
         h = box[3] - box[1]
-        p = (h * 0.3 + 4) if pad is None else pad
-        p_motion = vel * ext * 0.5 if pad is None else 0
+        p = (h * 0.12 + 3) if pad is None else pad  # close around the text; the detector's box already has a margin
+        p_motion = vel * ext * 0.3 if pad is None else 0
         return (int(box[0] - p - p_motion), int(box[1] - p), int(box[2] + p + p_motion), int(box[3] + p))
 
 

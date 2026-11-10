@@ -81,7 +81,7 @@ def wrap_khmer(text: str, max_len: int) -> list[str]:
 def subtitle_lines(segs: list[Segment], timing: dict | None) -> list[tuple[float, float, str]]:
     out = []
     for s in sorted(segs, key=lambda x: x.start):
-        if not s.km.strip():
+        if not any(ch.isalnum() for ch in s.km):  # nothing to read ("", "...")
             continue
         t = (timing or {}).get(str(s.id)) or (timing or {}).get(s.id)
         start, end = (t["start"], t.get("sub_end", t["end"])) if t else (s.start + s.offset, s.end + s.offset)

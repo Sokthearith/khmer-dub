@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--blur-region", type=_region, action="append", default=None,
                    help="manual blur box x,y,w,h[,start,end] in fractions of the frame; repeatable")
     r.add_argument("--blur-style", choices=["blur", "pixelate", "box"])
+    r.add_argument("--blur-targets", help="what to blur, comma separated: subtitles,logos,other "
+                                          "(default subtitles,logos)")
     r.add_argument("--blur-fps", type=float, help="text scan samples per second (default 3)")
     r.add_argument("--max-speedup", type=float, help="max speed-up of Khmer voice to fit timing (default 1.5)")
     r.add_argument("--quality", choices=["fast", "balanced", "high"])
@@ -148,6 +150,8 @@ def main(argv: list[str] | None = None) -> None:
                       ("subtitle_size", a.subtitle_size), ("blur", a.blur), ("blur_style", a.blur_style),
                       ("blur_sample_fps", a.blur_fps), ("max_speedup", a.max_speedup), ("video_quality", a.quality),
                       ("blur_regions", a.blur_region), ("translator_provider", a.provider),
+                      ("blur_targets", [x.strip() for x in a.blur_targets.split(",") if x.strip()]
+                       if a.blur_targets else None),
                       ("translator_base_url", a.base_url), ("voice_speed", a.voice_speed),
                       ("voice_pitch", a.voice_pitch), ("subtitle_position", a.subtitle_position),
                       ("subtitle_color", a.subtitle_color), ("resolution", a.resolution)]:

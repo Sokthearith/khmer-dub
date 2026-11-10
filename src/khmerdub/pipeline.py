@@ -200,7 +200,7 @@ class Pipeline:
 
     @property
     def blur_cache(self) -> Path:
-        return self.p.path(f"blur_{self.s.blur}_{self.s.blur_sample_fps:g}fps.json")
+        return self.p.path(blurmod.cache_name(self.s.blur, self.s.blur_sample_fps))
 
     def scan_text(self, progress: Progress | None = None) -> list[dict]:
         """Run (or reuse) the automatic text scan for the whole video."""
@@ -228,6 +228,7 @@ class Pipeline:
                 self.log(f"Found {len(tracks)} pieces of text to blur")
             else:  # preview: scan only the preview range
                 tracks = blurmod.detect(self.p.video, self.s.blur, self.s.blur_sample_fps, start, end, progress)
+            tracks = blurmod.pick(tracks, self.s.blur_targets)  # only what the user wants blurred
         tracks += blurmod.manual_tracks(self.s.blur_regions, info.width, info.height, info.duration)
         return blurmod.Timeline(tracks) if tracks else None
 

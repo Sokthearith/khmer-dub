@@ -63,6 +63,7 @@ class Settings:
     subtitle_box: bool = False  # dark box behind the text
     # blur
     blur: str = "chinese"  # chinese | all | off  (automatic OCR blur)
+    blur_targets: list[str] = field(default_factory=lambda: ["subtitles", "logos"])  # + "other" (see blur.py)
     blur_regions: list[dict] = field(default_factory=list)  # manual boxes, see blur.py
     blur_style: str = "blur"  # blur | pixelate | box
     blur_sample_fps: float = 3.0

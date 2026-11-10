@@ -105,15 +105,16 @@ internet. If you start the app yourself instead of with the start script, add `-
 
 ### How the blur works
 
-The app scans the video a few times per second, reads the text and blurs only text with Chinese characters
-(English and Khmer stay sharp):
+The app scans the video a few times per second and sorts the Chinese text it finds into three kinds.
+**Settings → What to blur** picks which to blur:
 
-- **Still text** (logos, watermarks, the subtitle bar) gets one steady blur, even if it fades in and out.
-- **Subtitle lines** are blurred while they are on screen.
-- **Moving or floating text** is tracked, and the blur follows it.
+- **Subtitles** (on by default): the burned-in Chinese subtitle lines. Each line gets a small box around
+  just that line, only while it is on screen. Your Khmer subtitles sit on top.
+- **Logos, banners, ads** (on by default): watermarks and channel names such as *bilibili*, text that stays
+  at an edge or corner, and banners scrolling across the top or bottom (the blur follows them).
+- **Text inside the animation** (off by default): signs, screens, papers that are part of the picture.
 
-Anything it misses: add a box in tab 4, or set **Scan** to *Careful*. Your Khmer subtitles sit on top of
-the blurred Chinese subtitle bar.
+The boxes hug the text. Anything it misses: add your own box in tab 4, or set **Scan** to *Careful*.
 
 ## How long does it take?
 

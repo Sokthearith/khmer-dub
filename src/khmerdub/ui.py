@@ -45,7 +45,7 @@ SETTING_FIELDS = [
     "voice_mode", "voice_speed", "voice_pitch", "remove_voice", "max_speedup", "fit_mode", "background_volume",
     "dub_volume",
     "subtitles", "subtitle_size", "subtitle_position", "subtitle_color", "subtitle_box",
-    "blur", "blur_style", "blur_sample_fps", "video_quality", "resolution", "keep_original_audio",
+    "blur", "blur_targets", "blur_style", "blur_sample_fps", "video_quality", "resolution", "keep_original_audio",
 ]
 
 PRESETS = {
@@ -792,6 +792,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                                 blur = gr.Radio(label="Automatic blur",
                                                 choices=[("Chinese text", "chinese"), ("All text", "all"),
                                                          ("Off", "off")], value="chinese")
+                                blur_targets = gr.CheckboxGroup(
+                                    label="What to blur",
+                                    choices=[("Subtitles", "subtitles"),
+                                             ("Logos, banners, ads (bilibili…)", "logos"),
+                                             ("Text inside the animation (signs, screens)", "other")],
+                                    value=["subtitles", "logos"])
                                 with gr.Row():
                                     blur_style = gr.Radio(label="Look", choices=[("Blur", "blur"),
                                                                                 ("Pixels", "pixelate"),
@@ -979,7 +985,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         comp = dict(zip(SETTING_FIELDS, [
             translator, provider, base_url, model, whisper_model, voice_mode, voice_speed, voice_pitch, remove_voice,
             max_speedup, fit_mode, background_volume, dub_volume, subtitles, subtitle_size, subtitle_position, subtitle_color,
-            subtitle_box, blur, blur_style, blur_sample_fps, video_quality, resolution, keep_original_audio]))
+            subtitle_box, blur, blur_targets, blur_style, blur_sample_fps, video_quality, resolution,
+            keep_original_audio]))
         setting_comps = list(comp.values())
 
         def rail_state(active: str, proj: Project | None) -> dict:
@@ -1426,7 +1433,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         all_piseth.click(lambda p, i, b, o: do_all_voice(p, i, b, o, "piseth"), voice_in, voice_out)
 
         # ---- blur page
-        def draw_blur_frame(proj_v, t, box_list, pt, blur_mode, fps):
+        def draw_blur_frame(proj_v, t, box_list, pt, blur_mode, fps, targets=None):
             import cv2
 
             from . import blur as blurmod
@@ -1439,9 +1446,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             if frame is None:
                 return None
             H, W = frame.shape[:2]
-            cache = proj.path(f"blur_{blur_mode}_{float(fps):g}fps.json")
+            if targets is None:
+                targets = proj.load_settings().blur_targets
+            cache = proj.path(blurmod.cache_name(blur_mode, fps))
             if cache.exists():
-                for x0, y0, x1, y1 in blurmod.Timeline(blurmod.load_tracks(cache)).boxes(t):
+                tracks = blurmod.pick(blurmod.load_tracks(cache), targets)
+                for x0, y0, x1, y1 in blurmod.Timeline(tracks).boxes(t):
                     cv2.rectangle(frame, (int(x0 * scale), int(y0 * scale)), (int(x1 * scale), int(y1 * scale)),
                                   _bgr(JADE), 2)
             for r in box_list or []:
@@ -1454,8 +1464,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 cv2.drawMarker(frame, (int(pt[0] * W), int(pt[1] * H)), _bgr(TUR), cv2.MARKER_CROSS, 26, 3)
             return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        blur_view_in = [proj_dir, blur_t, boxes, pending_pt, blur, blur_sample_fps]
+        blur_view_in = [proj_dir, blur_t, boxes, pending_pt, blur, blur_sample_fps, blur_targets]
         blur_t.release(draw_blur_frame, blur_view_in, [blur_img])
+        blur_targets.change(draw_blur_frame, blur_view_in, [blur_img])
         rail["blur"].click(draw_blur_frame, blur_view_in, [blur_img])
 
         def go_blur(p, *a):
@@ -1516,11 +1527,14 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 if _stopped(err):
                     return
                 raise gr.Error(_friendly(err))
-            n_move = sum(1 for tr in res if not tr["static"])
-            yield {scan_msg: f"Found {len(res)} pieces of Chinese text, {n_move} of them moving. Move the slider "
+            kinds = [tr.get("kind", "other") for tr in res]
+            yield {scan_msg: f"Found {kinds.count('subtitle')} subtitle lines, {kinds.count('logo')} logos/banners and "
+                             f"{kinds.count('other')} bits of text inside the animation; only the kinds ticked in Settings → What to "
+                             "blur are blurred. Move the slider "
                              "to check them.",
                    head: header_html(proj), **rail_state("blur", proj),
-                   blur_img: draw_blur_frame(d[proj_dir], d[blur_t], d[boxes], None, d[blur], d[blur_sample_fps])}
+                   blur_img: draw_blur_frame(d[proj_dir], d[blur_t], d[boxes], None, d[blur], d[blur_sample_fps],
+                                             d[blur_targets])}
 
         scan_in = {proj_dir, blur_t, boxes, *setting_comps}
         scan_btn.click(do_scan, scan_in, [scan_msg, head, log_box, blur_img, *rail_list],
@@ -1814,7 +1828,8 @@ parts you can dub one at a time. Everything is saved in the `projects` folder, s
   **Batch** and let it run.
 - Same name translated differently? Review → All lines → Find and Replace.
 - Khmer voice too fast? Lower *Max voice speed-up* or *Speed* in Settings → More options.
-- Chinese text not blurred? Set Scan to *Careful*, or add a box in Blur.
+- Too much blurred, or not enough? Settings → What to blur: subtitles and logos/banners are on; text that is
+  part of the animation (signs, screens) is off. Something missed: set Scan to *Careful*, or add a box in Blur.
 
 **For developers**
 
