@@ -41,6 +41,32 @@ def ffmpeg_has_filter(name: str) -> bool:
     return any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
 
 
+def nvenc_args(cq: str) -> list[str]:
+    """H.264 on an NVIDIA graphics card, about the quality of x264 at the same number."""
+    return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", cq, "-b:v", "0"]
+
+
+@functools.cache
+def gpu_encoder() -> bool:
+    """True when this computer can encode H.264 on an NVIDIA graphics card (NVENC): checked once with a
+    half-second test, so a driver or ffmpeg build without it simply uses the normal encoder."""
+    from .devices import has_nvidia_gpu
+
+    if not has_nvidia_gpu():
+        return False
+    try:
+        listed = subprocess.run([ffmpeg_exe(), "-hide_banner", "-encoders"], capture_output=True, text=True,
+                                timeout=30).stdout
+        if "h264_nvenc" not in listed:
+            return False
+        test = subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                               "color=c=black:s=320x240:d=0.5", "-pix_fmt", "yuv420p", *nvenc_args("21"), "-f", "null", "-"],
+                              capture_output=True, timeout=60)
+        return test.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def run_ffmpeg(args: list[str], cwd: str | Path | None = None) -> None:
     from . import jobs
 

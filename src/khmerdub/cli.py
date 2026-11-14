@@ -91,7 +91,8 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--subtitle-color", choices=["white", "yellow"])
     r.add_argument("--subtitle-box", action="store_true", help="dark box behind the subtitles")
     r.add_argument("--resolution", choices=["original", "1080", "720", "480"])
-    r.add_argument("--blur", choices=["chinese", "all", "off"], help="automatic text blur")
+    r.add_argument("--blur", choices=["chinese", "all", "off"],
+                   help="find text to blur automatically (default: off; --blur-region boxes are always used)")
     r.add_argument("--blur-region", type=_region, action="append", default=None,
                    help="manual blur box x,y,w,h[,start,end] in fractions of the frame; repeatable")
     r.add_argument("--blur-style", choices=["blur", "pixelate", "box"])

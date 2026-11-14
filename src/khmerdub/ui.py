@@ -10,11 +10,13 @@ Steps: Upload · Settings · Review · Blur · Export, plus Cut, Batch and Help.
 from __future__ import annotations
 
 import html
+import json
 import re
 import shutil
 import threading
 import time
 import traceback
+from dataclasses import asdict
 from pathlib import Path
 
 import gradio as gr
@@ -404,6 +406,30 @@ def _safe_name(stem: str) -> str:
     return (re.sub(r"[^\w\-]+", "_", stem, flags=re.UNICODE).strip("_") or "video")[:60]
 
 
+DEFAULTS_FILE = "defaults.json"  # in the projects folder: the settings used last, for new videos
+
+
+def default_settings() -> Settings:
+    """What a new video starts with: the settings used last (your own boxes are per video, so not those)."""
+    try:
+        data = json.loads((PROJECTS / DEFAULTS_FILE).read_text(encoding="utf-8"))
+        known = Settings.__dataclass_fields__.keys()
+        s = Settings(**{k: v for k, v in data.items() if k in known})
+    except (OSError, ValueError, TypeError):
+        return Settings()
+    s.blur_regions = []
+    return s
+
+
+def remember_defaults(s: Settings) -> None:
+    data = asdict(s)
+    data.pop("blur_regions", None)
+    try:
+        (PROJECTS / DEFAULTS_FILE).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def project_from_upload(path: str) -> Project:
     """Same video again -> same project (continue). Different video with the same name -> new folder."""
     src = Path(path)
@@ -419,7 +445,7 @@ def project_from_upload(path: str) -> Project:
         shutil.copy(src, dest)
     proj = Project(dest, d)
     if not proj.settings_file.exists():
-        proj.save_settings(Settings())
+        proj.save_settings(default_settings())
     return proj
 
 
@@ -742,7 +768,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
                     # ---------------------------------------------- settings
                     with gr.Tab("Settings", id="settings"):
-                        gr.Markdown("## Settings <span class='kd-km'>ការកំណត់</span>\nPick a starting point. Everything below can be changed.",
+                        gr.Markdown("## Settings <span class='kd-km'>ការកំណត់</span>\nPick a starting point, then switch on only "
+                                    "what you need. New videos start with the settings you used last.",
                                     elem_classes="kd-title")
                         preset = gr.Radio(choices=PRESET_CHOICES, value="free", show_label=False)
                         with gr.Row(equal_height=False):
@@ -771,13 +798,16 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                                 with gr.Row():
                                     voice_speed = gr.Slider(-30, 30, value=0, step=5, label="Speed (%)")
                                     voice_pitch = gr.Slider(-20, 20, value=0, step=2, label="Pitch (Hz)")
+                                gr.Markdown("Chinese voice", elem_classes="kd-group")
                                 remove_voice = gr.Checkbox(label="Remove the Chinese voice, keep music and effects",
-                                                           value=True)
+                                                           value=True,
+                                                           info="Best sound, but the slowest step. Off: the Chinese "
+                                                                "voice is only made quieter, much faster.")
                             with gr.Column():
                                 gr.Markdown("Khmer subtitles", elem_classes="kd-group")
-                                subtitles = gr.Radio(label="Subtitles",
-                                                     choices=[("In the picture", "burn"),
-                                                              ("Separate track", "soft"), ("None", "none")],
+                                subtitles = gr.Radio(label="Khmer subtitles",
+                                                     choices=[("On the video", "burn"),
+                                                              ("Separate track", "soft"), ("Off", "none")],
                                                      value="burn")
                                 with gr.Row():
                                     subtitle_position = gr.Radio(label="Position", choices=[("Bottom", "bottom"),
@@ -791,20 +821,24 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                                     subtitle_box = gr.Checkbox(label="Dark box behind text", value=False)
                                 gr.Markdown("Blur Chinese text", elem_classes="kd-group")
                                 blur = gr.Radio(label="Automatic blur",
-                                                choices=[("Chinese text", "chinese"), ("All text", "all"),
-                                                         ("Off", "off")], value="chinese")
+                                                choices=[("Off · I add my own boxes", "off"),
+                                                         ("Chinese text", "chinese"), ("All text", "all")],
+                                                value="off",
+                                                info="Your own boxes (step 4, Blur) are always used. Automatic blur "
+                                                     "first scans the whole video, which takes a while.")
                                 blur_targets = gr.CheckboxGroup(
                                     label="What to blur",
                                     choices=[("Subtitles", "subtitles"),
                                              ("Logos, banners, ads (bilibili…)", "logos"),
                                              ("Text inside the animation (signs, screens)", "other")],
-                                    value=["subtitles", "logos"])
+                                    value=["subtitles", "logos"], visible=False)
                                 with gr.Row():
                                     blur_style = gr.Radio(label="Look", choices=[("Blur", "blur"),
                                                                                 ("Pixels", "pixelate"),
                                                                                 ("Dark box", "box")], value="blur")
                                     blur_sample_fps = gr.Radio(label="Scan", choices=[("Fast", 2.0), ("Normal", 3.0),
-                                                                                     ("Careful", 5.0)], value=3.0)
+                                                                                     ("Careful", 5.0)], value=3.0,
+                                                               visible=False)
                         with gr.Accordion("More options", open=False):
                             with gr.Row():
                                 whisper_model = gr.Dropdown(label="Speech recognition",
@@ -895,19 +929,23 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
                     # ---------------------------------------------- blur
                     with gr.Tab("Blur", id="blur"):
-                        gr.Markdown("## Blur <span class='kd-km'>បិទអក្សរ</span>\nGreen boxes are found automatically. Click two corners of any text "
-                                    "they miss to add your own box.", elem_classes="kd-title")
+                        gr.Markdown("## Blur <span class='kd-km'>បិទអក្សរ</span>\nClick two corners of the Chinese text (top-left, "
+                                    "then bottom-right) to blur it. Move the slider to check other moments. Green boxes "
+                                    "are found automatically, only if you switch that on.", elem_classes="kd-title")
                         with gr.Row(equal_height=False):
                             with gr.Column(scale=3):
                                 blur_t = gr.Slider(0, 60, value=5, step=0.5, label="Position in the video (seconds)")
                                 blur_img = gr.Image(interactive=False, height=460, show_label=False)
                             with gr.Column(scale=2):
-                                scan_btn = gr.Button("Scan the whole video now")
+                                scan_btn = gr.Button("Find text automatically (optional)")
                                 scan_msg = gr.Markdown("", elem_classes="kd-hint")
                                 box_whole = gr.Checkbox(label="New boxes cover the whole video", value=True)
-                                with gr.Row():
+                                with gr.Row(equal_height=True):
                                     box_from = gr.Number(label="Or only from (s)", value=None)
+                                    from_here = gr.Button("From here", min_width=90, scale=0)
+                                with gr.Row(equal_height=True):
                                     box_to = gr.Number(label="to (s)", value=None)
+                                    to_here = gr.Button("To here", min_width=90, scale=0)
                                 box_table = gr.Dataframe(headers=["x %", "y %", "w %", "h %", "from", "to"],
                                                          type="array", interactive=False, label="Your boxes",
                                                          max_height=180, elem_classes="kd-table")
@@ -1025,6 +1063,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 setattr(s, name, v)
             s.blur_regions = list(box_list if box_list is not None else (d.get(boxes) or []))
             proj.save_settings(s)
+            remember_defaults(s)
             return s
 
         def _translator_visibility(t, prov) -> dict:
@@ -1041,6 +1080,15 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             }
 
         vis_out = [translator_help, provider, base_url, api_key, model]
+
+        def _option_visibility(subs, auto_blur) -> dict:
+            """Subtitle look only with subtitles on; what-to-blur and scan only with automatic blur on."""
+            on_subs, on_blur = subs != "none", auto_blur not in ("off", None)
+            return {subtitle_position: gr.update(visible=on_subs), subtitle_color: gr.update(visible=on_subs),
+                    subtitle_size: gr.update(visible=on_subs), subtitle_box: gr.update(visible=on_subs),
+                    blur_targets: gr.update(visible=on_blur), blur_sample_fps: gr.update(visible=on_blur)}
+
+        opt_out = [subtitle_position, subtitle_color, subtitle_size, subtitle_box, blur_targets, blur_sample_fps]
 
         # ---- upload / load a project
         def load_into_ui(proj: Project) -> dict:
@@ -1060,6 +1108,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                 downloads: [str(p) for p in Pipeline(proj, s, log=lambda m: None).downloads()] or None,
             }
             out.update({c: getattr(s, name) for name, c in comp.items()})
+            for c, vis in _option_visibility(s.subtitles, s.blur).items():  # keep the value, set visibility
+                out[c] = gr.update(value=out[c], visible=vis["visible"])
             out.update(_translator_visibility(s.translator, s.translator_provider))
             out.update(rail_state("upload", proj))
             out.update(blank_editor())
@@ -1101,6 +1151,8 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
 
         preset.input(on_preset, [preset], list(dict.fromkeys([*setting_comps, *vis_out])))
         translator.change(_translator_visibility, [translator, provider], vis_out)
+        subtitles.change(_option_visibility, [subtitles, blur], opt_out, queue=False)
+        blur.change(_option_visibility, [subtitles, blur], opt_out, queue=False)
         provider.change(_translator_visibility, [translator, provider], vis_out)
 
         # ---- step 1: transcript + translation
@@ -1507,6 +1559,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
             return (box_list, _box_rows(box_list), None,
                     draw_blur_frame(proj_v, t, box_list, None, blur_mode, fps, targets))
 
+        from_here.click(lambda t: (float(t or 0), False), [blur_t], [box_from, box_whole], queue=False)
+        to_here.click(lambda t: (float(t or 0), False), [blur_t], [box_to, box_whole], queue=False)
+
         box_in = [proj_dir, blur_t, boxes, blur, blur_sample_fps, blur_targets]
         box_out = [boxes, box_table, pending_pt, blur_img]
         undo_box.click(lambda *a: change_boxes(*a, "undo"), box_in, box_out)
@@ -1515,9 +1570,13 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
         def do_scan(d, progress=gr.Progress()):
             proj = project_from_dir(d[proj_dir])
             s = settings_from(d, proj)
-            if s.blur == "off":
-                yield {scan_msg: "Automatic blur is off (Settings). Only your own boxes are used."}
-                return
+            turned_on = {}
+            if s.blur == "off":  # pressing "Find text automatically" means: switch it on for this video
+                s.blur = "chinese"
+                proj.save_settings(s)
+                remember_defaults(s)
+                turned_on = {blur: "chinese", **_option_visibility(s.subtitles, "chinese")}
+                yield {scan_msg: "Automatic blur switched on (Chinese text). Scanning…", **turned_on}
 
             def work(log, prog):
                 return Pipeline(proj, s, None, log, prog).scan_text(prog)
@@ -1536,11 +1595,12 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout function is the easiest
                              "blur are blurred. Move the slider "
                              "to check them.",
                    head: header_html(proj), **rail_state("blur", proj),
-                   blur_img: draw_blur_frame(d[proj_dir], d[blur_t], d[boxes], None, d[blur], d[blur_sample_fps],
-                                             d[blur_targets])}
+                   blur_img: draw_blur_frame(d[proj_dir], d[blur_t], d[boxes], None, s.blur, s.blur_sample_fps,
+                                             s.blur_targets)}  # s: blur may have just been switched on
 
         scan_in = {proj_dir, blur_t, boxes, *setting_comps}
-        scan_btn.click(do_scan, scan_in, [scan_msg, head, log_box, blur_img, *rail_list],
+        scan_btn.click(do_scan, scan_in, list(dict.fromkeys([scan_msg, head, log_box, blur_img, *rail_list, blur,
+                                                             *opt_out])),
                        show_progress_on=[blur_img], **HEAVY)
 
         def do_preview(d, progress=gr.Progress()):
@@ -1800,12 +1860,14 @@ HELP_MD = """
 **The five steps**
 
 1. **Upload** a Chinese video, or continue a saved project.
-2. **Settings**: a starting point at the top is enough for most videos. Press **Start**.
+2. **Settings**: a starting point at the top is enough for most videos. Switch Khmer subtitles, voice removal and
+   automatic blur on or off; new videos start with the settings you used last. Press **Start**.
 3. **Review**: click a line, listen to the original and the Khmer, fix the text, choose Sreymom or Piseth,
    then **Save and next**. The band at the top shows the whole episode; faded blocks are not checked yet.
    **Check timing** makes the voices and marks lines that don't fit the character (red = runs over). Tick
    *Only lines to fix*, then use *Earlier / Later*, *Speed*, **Shorten** and **Play in video** on each one.
-4. **Blur**: check the green boxes; click two corners on the picture to add your own.
+4. **Blur**: click two corners of a logo or Chinese subtitle to blur it (**From here** / **To here** for only part
+   of the video). *Find text automatically* is optional and takes a while.
 5. **Export**: make the video and download it.
 
 **Cut** splits a video into 10- or 15-minute parts for TikTok or Facebook, or cuts a long Chinese episode into
@@ -1827,12 +1889,13 @@ parts you can dub one at a time. Everything is saved in the `projects` folder, s
 
 - To stop a long job, press **Stop** at the top, next to the progress. Finished steps are kept: press the same
   button again later to continue.
-- A one-hour episode takes about two hours without a graphics card. Use **Do everything automatically** or
-  **Batch** and let it run.
+- Faster: turn off removing the Chinese voice (the slowest step) and use your own blur boxes instead of the
+  automatic scan. Long episodes: use **Do everything automatically** or **Batch** and let it run.
 - Same name translated differently? Review → All lines → Find and Replace.
 - Khmer voice too fast? Lower *Max voice speed-up* or *Speed* in Settings → More options.
-- Too much blurred, or not enough? Settings → What to blur: subtitles and logos/banners are on; text that is
-  part of the animation (signs, screens) is off. Something missed: set Scan to *Careful*, or add a box in Blur.
+- Automatic blur: too much blurred, or not enough? Settings → What to blur: subtitles and logos/banners are on;
+  text that is part of the animation (signs, screens) is off. Something missed: set Scan to *Careful*, or add a
+  box in Blur.
 
 **For developers**
 

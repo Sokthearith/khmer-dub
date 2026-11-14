@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Callable
 
 from . import blur as blurmod
+from . import jobs
 from .media import run_ffmpeg, video_info
 from .project import Project, Segment, Settings
 from .subtitles import read_srt, subtitle_lines, write_srt, write_zh_srt
@@ -233,7 +235,18 @@ class Pipeline:
         return blurmod.Timeline(tracks) if tracks else None
 
     def produce(self) -> Path:
-        self.build_audio(self.stage(0.0, 0.35))
+        side = None
+        if self.s.blur in ("chinese", "all") and not self.blur_cache.exists():
+            # The text scan works the processor while the Khmer voices mostly wait for the voice service,
+            # so both run at the same time.
+            side = _Alongside(self.scan_text)
+        try:
+            self.build_audio(self.stage(0.0, 0.35))
+            if side is not None:
+                side.wait(self.stage(0.35, 0.6))
+        finally:
+            if side is not None:
+                side.cancel()  # the voices failed or were stopped: end the scan too
         lines = self.sub_lines()
         write_srt(lines, self.p.path(f"{self.p.video.stem}_khmer.srt"))
         timeline = self.blur_timeline(self.stage(0.35, 0.6))
@@ -409,6 +422,40 @@ class Pipeline:
         return out
 
 
+class _Alongside:
+    """Runs `work(progress)` in a second thread while the job goes on. `wait` shows its progress until it is done
+    (and raises its error, if any); `cancel` ends it at its next progress report."""
+
+    def __init__(self, work: Callable[[Progress], object]):
+        self.frac, self.msg, self.err = 0.0, "", None
+        self._cancel = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(work,), daemon=True)
+        self._thread.start()
+
+    def _progress(self, frac: float, msg: str) -> None:
+        if self._cancel.is_set():
+            raise jobs.Stopped()
+        jobs.check()
+        self.frac, self.msg = frac, msg
+
+    def _run(self, work) -> None:
+        try:
+            work(self._progress)
+        except BaseException as e:  # handed to the job in wait()
+            self.err = e
+
+    def wait(self, progress: Progress) -> None:
+        while self._thread.is_alive():
+            progress(self.frac, self.msg or "Finding text to blur…")
+            self._thread.join(0.5)
+        if self.err is not None:
+            raise self.err
+
+    def cancel(self) -> None:
+        self._cancel.set()
+        self._thread.join()
+
+
 def _wav_seconds(path: Path) -> float:
     import soundfile as sf
 
@@ -419,13 +466,15 @@ def estimate_minutes(duration_s: float, gpu: bool, remove_voice: bool = True, bl
                      scan_fps: float = 3.0) -> tuple[int, int]:
     """Rough processing time (min, max minutes).
 
-    CPU numbers measured on a 12-core laptop (10-minute video, 2026-11): voice removal 0.82x the
-    video length, transcript 0.35x, translation+voices+mix 0.15x, text scan 0.5x (at 3/s), render 0.23x.
-    GPU numbers are estimates.
+    CPU numbers measured on a 12-core laptop (10-minute video, 2026-11): voice removal 0.8x the video length,
+    transcript 0.45x, translation 0.02x, Khmer voices + mixing 0.25-0.7x (depends on the voice service), text
+    scan 0.4x at 3/s (it runs while the voices are made), final video 0.1-0.2x. GPU numbers are estimates.
     """
     m = duration_s / 60
+    scan = (0.4 if not gpu else 0.3) * scan_fps / 3 if blur else 0.0
+    voices = 0.35  # waits for the online voice service, the same with or without a graphics card
     if gpu:
-        per_min = (0.08 if remove_voice else 0) + 0.06 + 0.15 + (0.35 * scan_fps / 3 if blur else 0) + 0.2
+        per_min = (0.08 if remove_voice else 0) + 0.06 + 0.02 + max(voices, scan) + 0.1
     else:
-        per_min = (0.82 if remove_voice else 0) + 0.35 + 0.15 + (0.5 * scan_fps / 3 if blur else 0) + 0.23
+        per_min = (0.8 if remove_voice else 0) + 0.45 + 0.02 + max(voices, scan) + 0.2
     return max(1, round(m * per_min * 0.75)), max(2, round(m * per_min * 1.35))

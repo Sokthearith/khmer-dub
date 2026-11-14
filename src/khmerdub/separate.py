@@ -14,6 +14,7 @@ import numpy as np
 from .devices import torch_device
 
 CHUNK_SECONDS = 120
+OVERLAP = 0.1  # share of each ~8 s piece worked on twice, to hide the seams (0.25: 13% slower, same sound)
 PAD_SECONDS = 4
 
 
@@ -67,7 +68,7 @@ def separate(
             with torch.no_grad():
                 out = apply_model(
                     model, ((wav - mean) / std)[None], device=device,
-                    shifts=0, split=True, overlap=0.25, progress=False,
+                    shifts=0, split=True, overlap=OVERLAP, progress=False,
                 )[0]
             vocals = (out[vocals_idx] * std + mean).cpu().numpy().T
             inner = slice(start - a, start - a + (end - start))

@@ -42,6 +42,8 @@ VOICE_BUSY = ("The Khmer voice service (Microsoft) did not answer for many lines
 VOICE_LINE_BUSY = ("The Khmer voice service (Microsoft) did not answer for this line, even after waiting. "
                    "Try again in a minute.")
 RETRY_WAITS = (1, 2, 4, 8, 16, 30, 30)  # seconds between tries when the service refuses (about 1.5 minutes)
+REQUEST_TIMEOUT = 40  # seconds for one line's audio (it normally takes 1-3 s): a connection that stalls is
+# otherwise never given up, and blocks a request slot for good
 
 
 class VoiceFailed(Exception):
@@ -88,27 +90,32 @@ def _service_errors() -> tuple[type[BaseException], ...]:
             ConnectionError)
 
 
+async def _fetch(text: str, name: str, rate: int, pitch: int) -> bytes:
+    import edge_tts
+
+    audio = bytearray()
+    talk = edge_tts.Communicate(text, name, rate=f"{rate:+d}%", pitch=f"{pitch:+d}Hz")
+    async for m in talk.stream():
+        if m["type"] == "audio":
+            audio += m["data"]
+    return bytes(audio)
+
+
 async def _synth_one(sem, text: str, voice: str, rate: int, pitch: int, out: Path) -> None:
     """One clip. Only service/connection problems are retried, waiting outside the request slots so other
     lines keep going; a local problem (a full disk, say) is raised at once."""
-    import edge_tts
-
     name, retry = VOICES[voice], _service_errors()
     for attempt in range(len(RETRY_WAITS) + 1):
         try:
-            audio = bytearray()
             async with sem:
-                talk = edge_tts.Communicate(text, name, rate=f"{rate:+d}%", pitch=f"{pitch:+d}Hz")
-                async for m in talk.stream():
-                    if m["type"] == "audio":
-                        audio += m["data"]
+                audio = await asyncio.wait_for(_fetch(text, name, rate, pitch), REQUEST_TIMEOUT)
             break
         except retry as e:
             if attempt == len(RETRY_WAITS):
                 raise VoiceFailed(type(e).__name__) from e
             await asyncio.sleep(RETRY_WAITS[attempt] + random.random())
     tmp = out.with_suffix(".tmp")
-    tmp.write_bytes(bytes(audio))
+    tmp.write_bytes(audio)
     tmp.replace(out)
 
 

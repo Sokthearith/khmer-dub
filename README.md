@@ -7,8 +7,9 @@ Turn a Chinese video into a **Khmer video**, step by step, in your browser:
 3. **Translates it to Khmer**: Google (free), Gemini (free key), OpenRouter / Groq (free keys), DeepSeek, Claude, ChatGPT, Ollama or an offline model
 4. **Lets you check every line**: listen to the original and the Khmer, fix the text, choose the voice
 5. **Dubs it in Khmer** with **Sreymom** (female) and **Piseth** (male), picked automatically from each speaker's voice
-6. **Adds Khmer subtitles**: in the picture or as a separate track, bottom or top, white or yellow
-7. **Blurs Chinese text** on screen: subtitles, logos and watermarks, and moving or floating text
+6. **Adds Khmer subtitles** (optional): in the picture or as a separate track, bottom or top, white or yellow
+7. **Blurs Chinese text** on screen: two clicks put a box over a logo or subtitle, or let the app find the text
+   itself (optional: subtitles, logos and watermarks, moving banners)
 8. **Cuts videos into parts** (10 or 15 minutes, or your own length) for TikTok and Facebook, or to dub a long
    episode piece by piece
 
@@ -61,9 +62,9 @@ The steps are listed down the left side; the top bar always shows the open proje
 | Step | What you do |
 |---|---|
 | **1 · Upload** | Drop in the Chinese video (or continue a saved project). You see its length and how long processing will take. |
-| **2 · Settings** | Pick a **quick choice** (Free & easy, Free AI, Best quality, Fastest) or set things yourself. Press **Start**. |
+| **2 · Settings** | Pick a **quick choice** (Free & easy, Free AI, Best quality, Fastest), then switch on only what you need: Khmer subtitles (on the video, separate track or off), removing the Chinese voice, automatic blur (off at first). Extra options show up only for what is on. New videos start with the settings you used last. Press **Start**. |
 | **3 · Review** | The coloured band shows the whole episode, one block per line (red Sreymom, blue Piseth, faded = not checked yet). Click a line to fix the Khmer, play the original and the Khmer voice, switch Sreymom/Piseth, then *Save and next*. **Check timing** makes the voices and marks every line: *fits*, *×1.3* (sped up), *0.6 s long* or *late* (red, also marked under the band). Tick *Only lines to fix*, then per line: *Earlier / Later 0.1 s*, a fixed *Speed*, **Shorten** (an AI translator rewrites the line shorter) and **Play in video** to see it with the picture. *All lines → Find and Replace* fixes a name everywhere at once. |
-| **4 · Blur** | See what the app will blur (green boxes). Click two corners on the picture to add your own box. Make a 20-second preview. |
+| **4 · Blur** | Click two corners on the picture (top-left, then bottom-right) to blur a logo or subtitle. A box covers the whole video, or only part of it: move the slider and press **From here** / **To here**. **Find text automatically** (optional) finds the Chinese text for you (green boxes); it scans the whole video, which takes a while. Make a 20-second preview. |
 | **5 · Export** | Press **Make the Khmer video**. Download the video, the Khmer subtitles (.srt), the Khmer soundtrack and the Chinese transcript. |
 | **Cut** | Split the Khmer video into 10- or 15-minute parts (or any length), or keep only a range like 1:30 to 45:00. Cutting the original Chinese video can open each part as its own project. Takes seconds. |
 
@@ -105,7 +106,11 @@ internet. If you start the app yourself instead of with the start script, add `-
 
 ### How the blur works
 
-The app scans the video a few times per second and sorts the Chinese text it finds into three kinds.
+**Your own boxes** (tab 4) are the quick way: most videos only need one box over the logo, and one over the
+Chinese subtitles if they are always in the same place. They cost almost no time.
+
+**Automatic blur** is optional (Settings → Automatic blur, or **Find text automatically** in tab 4). The app then
+scans the video a few times per second and sorts the Chinese text it finds into three kinds.
 **Settings → What to blur** picks which to blur:
 
 - **Subtitles** (on by default): the burned-in Chinese subtitle lines. Each line gets a small box around
@@ -114,7 +119,8 @@ The app scans the video a few times per second and sorts the Chinese text it fin
   at an edge or corner, and banners scrolling across the top or bottom (the blur follows them).
 - **Text inside the animation** (off by default): signs, screens, papers that are part of the picture.
 
-The boxes hug the text. Anything it misses: add your own box in tab 4, or set **Scan** to *Careful*.
+The boxes hug the text. Anything it misses: add your own box in tab 4, or set **Scan** to *Careful*. The scan
+runs while the Khmer voices are being made, so it adds little time to the export.
 
 ## How long does it take?
 
@@ -122,16 +128,19 @@ Measured on a 12-core laptop **without a graphics card**, for a 10-minute video:
 
 | Step | Time |
 |---|---|
-| Remove the Chinese voice | 8 min |
-| Chinese transcript | 3.5 min |
-| Translation (Google) + Khmer voices + mixing | 1.5 min |
-| Scan for Chinese text | 5 min |
-| Make the final video | 2 min |
-| **Total** | **20 min** |
+| Remove the Chinese voice | 7 min |
+| Chinese transcript | 4.5 min |
+| Translation (Google) | 10 s |
+| Khmer voices + mixing | 2–3 min (more when Microsoft's free voice service is busy) |
+| Find Chinese text automatically (only if you switch it on; runs while the voices are made) | +0–2 min |
+| Make the final video | 1 min |
+| **Total** | **about 15 min** |
 
-So a **1-hour episode takes about 2 hours without a graphics card** (the app shows an estimate for your
-computer). With an NVIDIA GPU, removing the voice and the transcript are many times faster. To save time,
-use the *Fastest* quick choice, turn the blur scan to *Fast*, or use the Batch tab overnight.
+So a **1-hour episode takes about 1.5 hours without a graphics card** (the app shows an estimate for your
+computer). With an NVIDIA GPU, removing the voice and the transcript are many times faster, and the video is
+made on the graphics card too. To save time: switch off *Remove the Chinese voice* (it is then only made
+quieter; this halves the time), blur with your own boxes instead of the automatic scan, or use the Batch tab
+overnight.
 It needs about 3–4 GB of free memory (RAM) and roughly 3× the video's size in free disk space.
 
 ## For developers
@@ -144,7 +153,8 @@ uv run --extra cpu khmerdub run episode01.mp4 --stage prepare     # transcript +
 #   ...edit episode01_khmerdub/segments.json...
 uv run --extra cpu khmerdub run episode01.mp4 --stage produce     # voices + final video
 uv run --extra cpu khmerdub run episode01.mp4 --translator gemini --api-key KEY
-uv run --extra cpu khmerdub run episode01.mp4 --blur-region 0,0.82,1,0.15   # extra blur box x,y,w,h (0-1)
+uv run --extra cpu khmerdub run episode01.mp4 --blur-region 0,0.82,1,0.15   # blur box x,y,w,h (0-1)
+uv run --extra cpu khmerdub run episode01.mp4 --blur chinese      # also find Chinese text automatically
 uv run --extra cpu khmerdub run episode01.mp4 --preview 300       # 20 s preview from 5:00
 uv run --extra cpu khmerdub run --help                            # all options
 uv run --extra cpu khmerdub cut episode01_khmer.mp4 --every 15    # split into 15-minute parts
@@ -203,7 +213,7 @@ update. A copy that is a git folder never updates itself; use `git pull` there.
 - **Khmer voice step fails:** the Sreymom/Piseth voices come from Microsoft's online Edge read-aloud service
   and need internet. Press the button again; it continues where it stopped.
 - **Wrong voice (man/woman) on some lines:** fix them in tab 3, or choose *Only Sreymom* / *Only Piseth*.
-- **Some Chinese text is not blurred:** set Scan to *Careful*, or add a box in tab 4.
+- **Some Chinese text is not blurred:** add a box in tab 4, or switch on automatic blur and set Scan to *Careful*.
 - **Subtitles come out as a separate track instead of in the picture:** your system ffmpeg has no subtitle
   support. Install a full ffmpeg from <https://ffmpeg.org>.
 - **Very slow:** that's normal without a GPU (see the table above). Use *Fastest*, or Batch overnight.

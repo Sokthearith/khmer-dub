@@ -490,6 +490,9 @@ class Timeline:
     """Answers 'which boxes to blur at time t' quickly for increasing t."""
 
     def __init__(self, tracks: list[dict]):
+        self.raw = list(tracks)
+        # only fixed boxes drawn by the user: ffmpeg can blur these itself (much faster than frame by frame)
+        self.manual_only = bool(tracks) and all(t.get("text") == "manual" for t in tracks)
         self.tracks = []
         for tr in tracks:
             keys = sorted(tr["keys"])
